@@ -350,14 +350,16 @@ def cells.let(cm: Cm, +bs: List<&2, H.HB>) -> Cxs:
     case Cm{on, n, t}:
       cells.go(hb.vals(bs), on, n, t, hb.ks(bs), Nil{})
 
-# a cell's root: the end of its class's links
+# a cell's root: the end of its class's links (at a root, Bool.pick's
+# unused arm reads cell 0, the trie's top: no walk)
 def cm.root.go(fuel: Nat, t: Ct, e: Ce, +k: U32) -> U32:
   match fuel e:
     case 0n _:
       k
     case 1n+f CeV{v, +c}:
       +u = t
-      cm.root.go(f, u, Bool.pick(Ce, U32.is_eq(c, k), CeNo{}, ct.get(u, c)), c)
+      +z = U32.is_eq(c, k)
+      cm.root.go(f, u, Bool.pick(Ce, z, CeNo{}, ct.get(u, Bool.pick(U32, z, 0, c))), c)
     case _ CeNo{}:
       k
 

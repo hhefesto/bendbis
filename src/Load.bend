@@ -21,12 +21,20 @@ import ./PHelp.bend as X
 type Sl is Type:
   Sl{f: File, acc: List<&2, U32>, more: Bool}
 
+# a chunk read: an empty one ends the file (the chunk is walked once)
+def slurp.more(g: File, xs: List<&2, U32>, acc: List<&2, U32>) -> Sl:
+  match xs:
+    case Nil{}:
+      Sl{g, acc, False{}}
+    case Con{h, t}:
+      Sl{g, List.reverse.go(&2, U32, Con{h, t}, acc), True{}}
+
 def slurp.res(g: File, x: Result<&1, &1, U32 & String, List<&2, U32>>, acc: List<&2, U32>) -> IO(Sl):
   match x:
     case Fail{(c, m)}:
       IO.pure(Sl, Sl{g, acc, False{}})
-    case Done{+xs}:
-      IO.pure(Sl, Sl{g, List.reverse.go(&2, U32, xs, acc), Bool.not(List.is_empty(&2, U32, xs))})
+    case Done{xs}:
+      IO.pure(Sl, slurp.more(g, xs, acc))
 
 def slurp.got(acc: List<&2, U32>, r: File & Result<&1, &1, U32 & String, List<&2, U32>>) -> IO(Sl):
   (g, x) = r

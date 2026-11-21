@@ -204,13 +204,20 @@ def env.close(+n: U32, e: Env) -> Env:
     case Env{txt, fid, ns, al, dir, frs, sc, +dep, ann, bk, ds}:
       Env{txt, fid, ns, al, dir, frs, sc.drop(Nat.sub(U32.to_nat(dep), U32.to_nat(n)), sc), U32.min(dep, n), ann, bk, ds}
 
-# the innermost index bound to k, NONE when k is not in scope
-def sc.find(sc: List<&2, Sc>, +k: String) -> U32:
-  match sc:
-    case Nil{}:
+# the innermost index bound to k, NONE when k is not in scope; hit: the
+# entry before sc bound k, at i (a walk that stops there, where Bool.pick
+# would walk the whole scope: its arms are both evaluated)
+def sc.find.go(sc: List<&2, Sc>, +k: String, hit: Bool, +i: U32) -> U32:
+  match sc hit:
+    case _ True{}:
+      i
+    case Nil{} False{}:
       C.NONE()
-    case Con{Sc{j, +i}, t}:
-      Bool.pick(U32, String.eq(j, k), i, sc.find(t, k))
+    case Con{Sc{j, +i2}, t} False{}:
+      sc.find.go(t, k, String.eq(j, k), i2)
+
+def sc.find(sc: List<&2, Sc>, +k: String) -> U32:
+  sc.find.go(sc, k, False{}, 0)
 
 # Book tables
 # -----------
@@ -242,8 +249,16 @@ def bk.ctr.base(b: Bool, bct: Map<&2, U32>, k: String) -> U32:
     case False{}:
       C.NONE()
 
+# Base's table read only when the file's own has no k
+def bk.ctr.pick(z: Bool, +bon: Bool, bct: Map<&2, U32>, +k: String, +n: U32) -> U32:
+  match z:
+    case True{}:
+      bk.ctr.base(bon, bct, k)
+    case False{}:
+      n
+
 def bk.ctr.or(+bon: Bool, bct: Map<&2, U32>, +k: String, +n: U32) -> U32:
-  Bool.pick(U32, U32.is_eq(n, C.NONE()), bk.ctr.base(bon, bct, k), n)
+  bk.ctr.pick(U32.is_eq(n, C.NONE()), bon, bct, k, n)
 
 # book.ctrs[k]: its field count, NONE when k is not a constructor
 def bk.ctr(b: Bk, +k: String) -> U32:

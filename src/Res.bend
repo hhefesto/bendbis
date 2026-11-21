@@ -70,9 +70,23 @@ def qual(+ns: String, +k: String) -> String:
 def tab.has(+bk: L.Bk, t: Bool, +k: String) -> Bool:
   Bool.pick(Bool, t, L.bk.has_tld(bk, k), L.bk.has_ctr(bk, k))
 
-# q in tab || !(k in tab) ? q : k
+# q in tab || !(k in tab) ? q : k, k looked up only when q is not in tab
+def reso.pick.k(z: Bool, q: String, k: String) -> String:
+  match z:
+    case True{}:
+      k
+    case False{}:
+      q
+
+def reso.pick.q(z: Bool, +bk: L.Bk, +t: Bool, q: String, +k: String) -> String:
+  match z:
+    case True{}:
+      q
+    case False{}:
+      reso.pick.k(tab.has(bk, t, k), q, k)
+
 def reso.pick(+bk: L.Bk, +t: Bool, +q: String, +k: String) -> String:
-  Bool.pick(String, Bool.or(tab.has(bk, t, q), Bool.not(tab.has(bk, t, k))), q, k)
+  reso.pick.q(tab.has(bk, t, q), bk, t, q, k)
 
 def reso.amb(z: Bool, q: String, +k: String, r: String) -> L.P(String):
   match z:

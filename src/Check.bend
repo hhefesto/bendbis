@@ -830,19 +830,55 @@ def cr.f(c: W.Cr) -> String:
     case W.Cr{k, n, T, f}:
       f
 
-def cr.has(cs: List<&2, W.Cr>, +k: String) -> Bool:
-  match cs:
-    case Nil{}:
+# infer-ref's two tests, each part read only when the parts before it do
+# not decide (Bool.and evaluates both): gen, a template referred to from a
+# def that is not one (k's def read only for a template), and bad, a
+# bodiless def that may not be called yet
+def ref.gen(z: Bool, bk: Map<&2, W.Td>, dn: String) -> Bool:
+  match z:
+    case True{}:
+      U32.is_eq(td.x(W.td.get(bk, dn)), 0)
+    case False{}:
       False{}
-    case Con{W.Cr{j, n, T, f}, t}:
-      Bool.or(String.eq(j, k), cr.has(t, k))
+
+def ref.bad.k(z: Bool, k: String, dn: String) -> Bool:
+  match z:
+    case True{}:
+      Bool.not(String.eq(k, dn))
+    case False{}:
+      False{}
+
+def ref.bad(z: Bool, b: Bool, u: Bool, gen: Bool, k: String, dn: String) -> Bool:
+  match z:
+    case True{}:
+      ref.bad.k(Bool.or(Bool.and(Bool.not(b), Bool.not(u)), gen), k, dn)
+    case False{}:
+      False{}
+
+# hit: the constructor before cs was k (each walk stops there)
+def cr.has.go(cs: List<&2, W.Cr>, +k: String, hit: Bool) -> Bool:
+  match cs hit:
+    case _ True{}:
+      True{}
+    case Nil{} False{}:
+      False{}
+    case Con{W.Cr{j, n, T, f}, t} False{}:
+      cr.has.go(t, k, String.eq(j, k))
+
+def cr.has(cs: List<&2, W.Cr>, +k: String) -> Bool:
+  cr.has.go(cs, k, False{})
+
+def cr.get.go(cs: List<&2, W.Cr>, +k: String, hit: Bool, c: W.Cr) -> W.Cr:
+  match cs hit:
+    case _ True{}:
+      c
+    case Nil{} False{}:
+      W.Cr{"", 0, H.HEfq{C.NoSp{}}, ""}
+    case Con{W.Cr{+j, n, T, f}, t} False{}:
+      cr.get.go(t, k, String.eq(j, k), W.Cr{j, n, T, f})
 
 def cr.get(cs: List<&2, W.Cr>, +k: String) -> W.Cr:
-  match cs:
-    case Nil{}:
-      W.Cr{"", 0, H.HEfq{C.NoSp{}}, ""}
-    case Con{W.Cr{+j, n, T, f}, t}:
-      Bool.pick(W.Cr, String.eq(j, k), W.Cr{j, n, T, f}, cr.get(t, k))
+  cr.get.go(cs, k, False{}, W.Cr{"", 0, H.HEfq{C.NoSp{}}, ""})
 
 # the constructors not in r
 def cr.keep(z: Bool, c: W.Cr, rest: List<&2, W.Cr>) -> List<&2, W.Cr>:
@@ -1748,8 +1784,8 @@ def ck.go(+fuel: Nat, j: KJ) -> K(KV):
             st => iret(k, 0, td, k, s, b, ctx, lhs.dn(lhs), st),
             st => (do K<KV>:
               +bk : Map<&2, W.Td> <- K.tl()
-              +gen : Bool = Bool.and(U32.is_gt(td.x(td), 0), U32.is_eq(td.x(W.td.get(bk, lhs.dn(lhs))), 0))
-              +bad : Bool = Bool.and(Bool.and(td.bodiless(td), Bool.or(Bool.and(Bool.not(td.b(td)), Bool.not(lhs.u(lhs))), gen)), Bool.not(String.eq(k, lhs.dn(lhs))))
+              +gen : Bool = ref.gen(U32.is_gt(td.x(td), 0), bk, lhs.dn(lhs))
+              +bad : Bool = ref.bad(td.bodiless(td), td.b(td), lhs.u(lhs), gen, k, lhs.dn(lhs))
               K.if(KV, bad,
                 K.err(KV, ctx, ExS{"a def whose body is implemented before the def is used (defs are checked in file order, and an unfilled law has none)"}, Some{ExH{H.HRef{k, s, b}}}, s, Some{lhs.dn(lhs)}, None{}, 0),
                 K.if(KV, gen,
