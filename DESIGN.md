@@ -212,6 +212,24 @@ All 34 pass `bend src/LAWS.bend --verdict` (upstream at 0e2f38f7, its
 kernel BendTT built from that commit's bendtt.lean; delfos, 2026-11-21,
 7 s), and bendbis's own `--check-only` gives upstream's output on it.
 
+The BendTT port is `src/BendTT.bend`, started: bendtt.lean's Quan, Term
+(constructors prefixed K, as Base has a constructor `App`), Ren,
+Term.ren, Term.spine and Term.unspine, and its first two lemmas,
+`up_ren` and `ren_ren`, with `unspine_spine` (bendtt.lean's 18th, taken
+early as it needs no substitution): 7 laws with their helpers,
+passing `bend src/BendTT.bend --verdict`. One change of form: bendtt.lean's
+Ren is a function, and a Bend function can't be duplicated (a + binder
+needs Data, which holds no lambda), nor can a pointwise hypothesis be
+shared by a term's two halves (a rewrite uses its proof live). So a
+renaming is Data (the identity, Nat.succ, Ren.up, Ren.pick and
+composition, read by `ren.at`), a lemma stated with funext is stated at
+every index, and `ren_ren` is proven under n binders at once (`ren.ups`),
+which needs no extensionality. Next in bendtt.lean's order is `subk_sub`,
+where a substitution (Nat -> Term) is composed with `sub` itself
+(`sub τ ∘ σ`): as Data, reading it calls `sub`, which reads it, and
+BendTT (so `--verdict`) lets a def call only itself and earlier defs, so
+that representation is the open design question.
+
 **The devShell (the user, 2026-11-21: "Install in the devshell").**
 `flake.nix`: `nix develop` gives `bend` (upstream at the commit bendbis is
 gated against, 0e2f38f7, from its sources under bun) with `$BENDTT` set to
