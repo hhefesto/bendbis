@@ -243,6 +243,64 @@ measured), each touching most modules:
 4. Base read once a build (its checked book in the binary), for files that
    import Base; not for base.bend itself, whose reading is the benchmark.
 
+**The redesign, in order (the user, 2026-11-21: "names as numbers, the
+parser and checker without closures, then parallel checking"; planned
+here, not started in code).** base.bend's reading alone (149 ms) is over
+upstream's whole run (118 ms), so the parser needs about 2x on its own,
+and Everything's checking (2.33 s) about 3x.
+
+R1. Names as numbers. Measured shares (Everything, d88b5bb, of all
+samples): the checker's book reads (`td.get`: the trie walk, its
+`String.drop`s and the leaf's string compare) about 9.6%; the parser's
+table reads (`bk.tld`, `bk.ctr` from name resolution and the fresh-name
+checks) about 7%. Giving refs an id alone is not enough, for two reasons
+found while planning it (estimates from the profile, not measured):
+
+- The id has to come out of a lookup the parser already does. A separate
+  name-to-id read at each ref would add a third or so to the parser's
+  map reads (P.reso already reads up to three tables a ref), which would
+  eat most of what the checker saves. So the id lives in the table entry (`Tld`)
+  and `P.reso` answers the name and its id together.
+- The checker's book changes while it checks (a def's body becomes
+  visible at its last event, Base joins at its place, instances are
+  minted), so an id-keyed copy beside the string map needs every write
+  mirrored, or reads go stale. One store instead: the book as an id trie,
+  with a name-to-id map only for the string-keyed paths (errors, the
+  verdict, minted names). Ids: Base's parse first, the entry's after;
+  names minted while checking take ids from a counter above the parser's
+  range, Base's minted range carried in `Bc`, so no two names share one.
+  A ref the parser made before its name was declared, or made up itself
+  (sugar), carries `NONE()` and is read by name.
+
+Then the lexer interns every name it reads (the scope, the alias table
+and the parser's tables by id; names spelled out only to print), which is
+where most of the parser's 7% is. A first edit (not built, set aside)
+that added an id to every `TRef`/`HRef` by sed showed one trap: a site that matches a ref and
+builds it again with a literal flag (`call.bang`) must keep the id, not
+reset it.
+
+R2. The parser's and checker's monads (`L.P`, `K.K`) without closures: a
+do-block's continuation as a frame on an explicit job stack, as `ck.go`'s
+jobs already are for a rule's premises (defunctionalized). It removes
+the closure calls (`Clo~apply`: 4% of all samples, 8% of reading's) and,
+above all, the runtime's fork penalty ("Parallel checking, tried and not
+kept", above), which R3 needs.
+
+R3. Parallel book_valid: the prototype (a scratch copy on olimpo,
+`/tmp/bendbis-scratch/spm/keep/`, not in the repo) checks each event on
+the state it would see if no earlier event minted an instance, then
+replays in order. Its tries took 1.05 s
+against 2.7 s on one thread; it pays once R2 has removed the closures.
+
+R4. The runtime's traffic (term_drop and span_fade, 55% of samples):
+fewer `+` (shared) values read many times, maps and stores updated where
+they are not shared, so a read does not bump and drop every field it
+passes.
+
+Each of R1 to R3 touches most modules (Check.bend alone is 2,087 lines)
+and is a session's work or more; the gates (1,880 + 28 + 253, byte for
+byte) run after each, and the speed table above gets a row each time.
+
 Fixed so far, each the `Bool.pick` kind of trap (both arms run, so a
 recursive arm walks to the end): `Show.chain` and `Show.arr.of` walked a
 whole term at every node they printed (the 3,000-deep error page took
