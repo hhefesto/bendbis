@@ -21,7 +21,10 @@ HigherOrderCO), under the Apache License 2.0: see `LICENSE` and `NOTICE`.
 
 `nix develop` gives upstream `bend` at the commit bendbis is gated against,
 with its proven kernel, so `bend src/LAWS.bend --verdict` works (Lean
-v4.34.0 and BendTT in the store, nothing in `~/.elan`).
+v4.34.0 and BendTT in the store, nothing in `~/.elan`). There,
+`gate/axioms.sh ~/src/bend2-upstream/bend2/bendtt.lean NEWDIR` has Lean
+check BendTT's proofs and print the axioms they rest on (DESIGN.md, "No
+proof of False").
 
 `BENDBIS_BASE` names the `base.bend` to read (default
 `$HOME/src/bend2-upstream/bend2/base.bend`); `BEND_LIB` is read as bend

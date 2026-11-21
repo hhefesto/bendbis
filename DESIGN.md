@@ -162,22 +162,95 @@ at HEAD under bun (2.0.39 for ana):
 | a file with no `import Base` (10 defs) | 0.030 s | 0.003 s | 0.10 |
 | ana's bend/Everything.bend | 1.01 s | 4.10 s | 4.1 |
 
-(2026-11-21, after share cells; the tests twice each, back to back,
-bendbis first then upstream first; the no-Base row is from before. Before share cells the
-tests took 272.3 s against upstream's 209.4 s, one file out at 120 s.)
+(2026-11-21, b612125, after share cells; the tests twice each, back to
+back, bendbis first then upstream first; the no-Base row is from before.
+Before share cells the tests took 272.3 s against upstream's 209.4 s, one
+file out at 120 s.)
 
-Faster than upstream on the tests and the guide, not yet on base.bend or
-ana. Where bendbis's time goes (perf, user space): reading
-base.bend is about 180 ms of its 252, checking it about 70; of the reading,
-half is the runtime freeing and sharing memory (`term_drop`, `span_fade`),
-then closures (the parser's monad). Fixed so far, each the `Bool.pick` kind
-of trap (both arms run): `Show.chain` and `Show.arr.of` walked a whole
-term at every node it printed (the 3,000-deep error page took minutes),
-five of Valid's list walks were 2^n (the verdict's own defs), and the
-parser measured the rest of the file at each string literal and each
-block line (`T.len` of the cursor: quadratic). Next, in this order: share
-cells (above), the parser's state and text representation (the runtime's
-memory traffic), and Base read once a build.
+2026-11-21, daa5541 (lookups that stop where they answer), delfos quiet,
+the single files five times each, the median:
+
+| input | upstream | bendbis | bendbis / upstream |
+|---|---|---|---|
+| upstream's tests and base.bend (1,880 files, 4 at a time) | 250.8 s | 171.2 s | 0.68 |
+| the guide's examples (28, 4 at a time) | 2.85 s | 2.74 s | 0.96 |
+| base.bend | 0.118 s | 0.213 s | 1.81 |
+| ana's bend/Everything.bend | 1.064 s | 3.879 s | 3.65 |
+
+Everything.bend went from 4.030 s (d88b5bb, the same session) to 3.879 s.
+Still faster on the tests and the guide; still slower on base.bend and
+ana, the goal's two inputs.
+
+**Where the time goes** (delfos, 2026-11-21, d88b5bb: perf on a build with
+frame pointers (`$CC` a clang with `-fno-omit-frame-pointer`; bend honors
+`$CC`), and a scratch build that prints `IO.now`
+between phases):
+
+| phase | base.bend | Everything.bend |
+|---|---|---|
+| reading Base (base.bend: reading the entry) | 149 ms | 144 ms |
+| checking Base | about 70 ms | 75 ms |
+| reading the entry's 63 other files | | 1,340 ms |
+| the book's terms to HTerms, and the verdict | | 120 ms |
+| book_valid, the checks themselves | | 2,330 ms |
+| upstream's whole run | 118 ms | 1,064 ms |
+
+By module (samples charged to the first Bend def on the stack), reading:
+Lex 24%, Core 19% (map reads and their string compares), Load 9%, closure
+calls 8%, Parse 7%, Text 6%, Res 6%, List 6%, String 5%. Checking: Wnf 44%
+(the share-cell store about 17%, `ct.get` alone 11%; book reads, `td.get`
+and its compares, about 14%), Check 15%, High 13% (term_higher, each time
+a binder is opened, as bend.ts's closures do), Core 8%, Map 5%, String 5%.
+Under all of it is the runtime: `term_drop` 37% and `span_fade` 18% of all
+samples, freeing and reference counting (reading a shared cons cell costs
+an atomic increment and decrement), so every name compare costs that per
+character. There is no single hot spot left: the gap is spread over the
+representation (names as cons-list Strings, in tries keyed by the
+string's bits; HTerms rebuilt at each binder opened) and the runtime's
+memory traffic. Upstream runs the same algorithms JIT-compiled with hashed
+strings, and uses about 14 s of CPU on 8 threads for its 1.06 s (bun's
+collector and compiler); bendbis uses 3.9 s on one.
+
+**Parallel checking, tried and not kept.** Bend's parallel let (`a b =
+f(x) g(y)`) runs on every thread: on delfos a pure loop split 16 ways ran
+4.5x faster on 8 threads, reads of one shared map 3x. A parallel
+book_valid was built (each event first tried, all at once, on the state it
+would see if no earlier event had minted a template instance; then the
+events in order, a try that minted nothing reused, any other checked
+again): the tries took 1.05 s against 2.7 s on one thread. But 328 of
+Everything's 2,196 bodies mint instances and were checked again, in order
+(about 1.0 s); and once a fork is reachable from any closure, the runtime
+runs every closure call (`Clo~apply` reaches every closure) as code that
+may fork, which on 2 or more threads made the parser's and checker's
+closure-heavy code about 30% slower (a closure loop alone: 45 ms on one
+thread, 74 ms on eight; 42 ms on both with no fork in the program). Net:
+4.04 s, no gain. Parallelism pays only once the monads (the parser's P,
+the checker's K) carry no closures, or with a runtime that keeps closure
+calls off the fork path.
+
+**What closing the gap takes** (from the profile; estimates, not
+measured), each touching most modules:
+
+1. Names interned to U32 once, when read: the book, constructor and scope
+   maps keyed by number, names spelled out only for messages. That removes
+   the string compares and most map walking: about a fifth of reading and
+   of checking.
+2. The share-cell store and the scope maps as Base's Arrays (blocks the
+   runtime updates in place when unshared) instead of tries.
+3. The parser's and checker's monads without closures (the state passed
+   and returned), which also lets parallel checking pay, and parallel
+   reading of imports that do not depend on each other.
+4. Base read once a build (its checked book in the binary), for files that
+   import Base; not for base.bend itself, whose reading is the benchmark.
+
+Fixed so far, each the `Bool.pick` kind of trap (both arms run, so a
+recursive arm walks to the end): `Show.chain` and `Show.arr.of` walked a
+whole term at every node they printed (the 3,000-deep error page took
+minutes), five of Valid's list walks were 2^n (the verdict's own defs),
+the parser measured the rest of the file at each string literal and each
+block line (`T.len` of the cursor: quadratic), and (daa5541) the parser's
+scope lookup, constructor lists, Base table reads, infer-ref's read of its
+own def and a share cell's root walked on after the answer.
 
 **Milestone 3, ana checked fast.** Milestone 2's outputs, with bendbis
 checking ana's tree faster than upstream: `bend/Everything.bend` under
@@ -239,6 +312,109 @@ ana's nixpkgs, so it is the store path ana's devShell built). Nothing goes
 in `~/.elan` or `~/.bend/bendtt`. On 60 of upstream's tests its
 `--check-only` output is bend-head's, byte for byte (bun 1.3.13 there,
 1.4.2 in bend-head).
+
+## No proof of False: what is proven, and about what
+
+The user (2026-11-21): "make sure that there is a proof that bendbis cannot
+demonstrate Falsely-hood."
+
+**The Lean proof holds.** `gate/axioms.sh`, inside `nix develop` (Lean
+v4.34.0), has Lean check upstream's `bend2/bendtt.lean` at 0e2f38f7 (3,861
+lines, sha256 3e9b678d...) and print the axioms of its three theorems:
+
+    'halts' depends on axioms: [propext, Classical.choice, Quot.sound]
+    'consistent' depends on axioms: [propext, Classical.choice, Quot.sound]
+    'adequate' depends on axioms: [propext, Classical.choice, Quot.sound]
+    'Book.check' depends on axioms: [propext, Classical.choice, Quot.sound]
+
+(delfos, 2026-11-21, 21 s, no error, warning or `sorry`). Those three are
+Lean's standard axioms: no `sorryAx`, no axiom of the file's own (it
+declares none), no `native_decide` (which would add `Lean.ofReduceBool`),
+no `implemented_by` or `extern`.
+
+**What it says.** `Claim.consistent`: for every book `bk` and every def
+`d` of it, if `Book.check bk` answers ok, then `d`'s type does not convert
+to `Empty` (`<>`). `Book.check` is exactly what the kernel's command line
+runs on the book it reads, and what upstream's `--verdict` runs. So no def
+of a book the kernel accepts proves False, not even up to conversion. The
+proof goes through `halts` (closed live code terminates, by a measure
+that ignores types), progress and subject reduction, and `Claim.empty` (no
+value has type `<>`). BendTT has `Type : Type`, so its types (the dead
+part) may be inconsistent as a logic; consistency comes from the live
+part, which is affine and calls only earlier defs or itself on smaller
+arguments. `adequate`: a closed live proof of `{a == b}` makes `a` and `b`
+convert (opaque defs unfolded to the models the kernel checked).
+
+**What it covers for bendbis today.** bendbis has no `--verdict` yet.
+`bendbis FILE --check-only` is a port of upstream's checker (bend.ts),
+which upstream does not claim sound ("Use --verdict for mathematical
+validity"); it is exact against upstream on the gated files, nothing more.
+bendbis's own laws (`src/LAWS.bend`, 34; `src/BendTT.bend`, 7) pass
+upstream's `bend --verdict`: bend2's check, then safe.ts's translation to
+BendTT, then the kernel. For them, the kernel accepted their translation,
+and by `consistent` nothing it accepts proves False.
+
+**What is trusted, not proven:** safe.ts's translation (a wrong one would
+have the kernel check another statement: the kernel's acceptance is
+proven safe, not the meaning given to it); the kernel's text parser
+(`Book.parse`, a `partial def`, outside the claims); Lean's compiler
+(`lean -c`, `leanc`), which makes the binary from the proven definitions;
+Lean's kernel and its three axioms.
+
+**The limit.** By Gödel's second incompleteness theorem, BendTT, if it is
+consistent and can express its own `Book.check` (it has Nat and recursion
+over data), cannot prove its own consistency. So porting `consistent` to
+Bend and checking it with `--verdict` cannot succeed, and is not tried.
+`halts` also rests on a Dershowitz-Manna multiset order (`dm_wf`), not on
+the structural descent BendTT's live check accepts. Two results in Bend
+that are possible (proposals, not built; both would extend
+`src/BendTT.bend`, whose porting waits on the user's answer):
+
+1. `Claim.empty`: no value has type `<>`, by structural induction over
+   the typing rules restricted to values. It is an inversion lemma, not a
+   consistency proof, so Gödel's theorem does not stand in the way.
+2. The consistency of a weaker fragment: books whose live code has no
+   self-calls (each def calls only earlier ones). Their evaluation ends
+   by a plain Nat measure (the calls left to unfold), so the fragment is a
+   weaker system than BendTT, whose consistency BendTT can state and prove,
+   as Peano arithmetic proves that of weaker systems.
+
+## `--verdict` in bendbis (milestone V, planned, not started)
+
+Upstream's `--verdict` (main.ts `cli_verdict`): book_promises (bendbis has
+it: `--check-only` prints it), then `Safe.safe_check`: safe.ts (1,733
+lines, about 1,280 of code) translates the checked book to BendTT text
+(`safe_book`); if no def is out of scope, the text is written to a fresh
+directory and `$BENDTT` checks it (`kernel_check`): exit 0 with exactly
+`ALL PROOFS CHECK` passes, else the lines after `SOME PROOFS FAIL` are the
+reason. `bend FILE -o X.bendtt` writes the same text.
+
+What bendbis needs for it:
+
+1. The elaborated term. bend.ts's def_check answers an LTerm whose every
+   node is wrapped in its type (`Def.e`), and safe.ts reads it for every
+   def; bendbis's checker keeps only its names ("The elaborated term",
+   below). Its rules would build the whole term, only when `--verdict`
+   asks, so `--check-only` pays nothing.
+2. safe.ts in Bend: the items (roots; instances, one per tuple of finite
+   `~` values; groups, found by regrouping and repeated passes), the model
+   search under its fuel (2^22 steps, counted as safe.ts counts them), the
+   lowering of λ-matches to case trees with convoys, η-long arguments
+   where `eta_finite` holds, the undo trail, and the printer. Its WeakMap
+   and Map memos keyed by object identity change the output where the
+   memoized call has effects (`col` in `root_emit` runs `term` once per
+   object), so the port has to track which values are the same object.
+3. The kernel call: Base's `Process.run` (an argv run, no shell) on
+   `$BENDTT`, the text through a file in a fresh directory, as
+   `kernel_check` does.
+
+The gates: first `bendbis FILE -o X.bendtt` byte for byte against
+upstream's on every file upstream's own `--verdict` gate reads (gates/safe.ts:
+every test), ana's files with laws, `src/LAWS.bend` and `src/BendTT.bend`;
+then `bendbis FILE --verdict`, output and exit code. The same text given
+to the same kernel gives the same answer, so the first gate is the work.
+Its size is that of milestone 2's checker (Check.bend, 2,087 lines): more
+than one session.
 
 ## What bendbis does differently (same output, other cost)
 
