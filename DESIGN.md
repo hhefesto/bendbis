@@ -193,9 +193,19 @@ get laws proven in Bend (`src/LAWS.bend` and per module), each passing
 ported to Bend, its terms, evaluator and checker as Bend data and defs and
 its claims as Bend theorems, in bendtt.lean's lemma order: the milestone
 after 2. Status: `src/LAWS.bend` holds 13 laws on the quantity algebra
-the checker's usage rides on (`q.add`, `q.join`, `q.dem`, `q.show`): ALL
-PROOFS CHECK under upstream; `--verdict` waits for Lean v4.34.0 on delfos
-(the kernel it builds).
+the checker's usage rides on (`q.add`, `q.join`, `q.dem`, `q.show`):
+they pass `bend src/LAWS.bend --verdict` (upstream at 0e2f38f7, its
+kernel BendTT built from that commit's bendtt.lean; delfos, 2026-11-21).
+
+**The devShell (the user, 2026-11-21: "Install in the devshell").**
+`flake.nix`: `nix develop` gives `bend` (upstream at the commit bendbis is
+gated against, 0e2f38f7, from its sources under bun) with `$BENDTT` set to
+BendTT built from that commit's `bend2/bendtt.lean` as safe.ts's
+`kernel_bin` builds it, and Lean v4.34.0 (`nix/lean4.nix`, from ana, on
+ana's nixpkgs, so it is the store path ana's devShell built). Nothing goes
+in `~/.elan` or `~/.bend/bendtt`. On 60 of upstream's tests its
+`--check-only` output is bend-head's, byte for byte (bun 1.3.13 there,
+1.4.2 in bend-head).
 
 ## What bendbis does differently (same output, other cost)
 

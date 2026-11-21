@@ -19,6 +19,10 @@ HigherOrderCO), under the Apache License 2.0: see `LICENSE` and `NOTICE`.
                                        # error, or what was read
     ./bendbis gate1 UPDIR OUTDIR FILE..  # milestone 1's gate (gate/)
 
+`nix develop` gives upstream `bend` at the commit bendbis is gated against,
+with its proven kernel, so `bend src/LAWS.bend --verdict` works (Lean
+v4.34.0 and BendTT in the store, nothing in `~/.elan`).
+
 `BENDBIS_BASE` names the `base.bend` to read (default
 `$HOME/src/bend2-upstream/bend2/base.bend`); `BEND_LIB` is read as bend
 reads it. Milestone 1's gate driver is `gate/m1.sh`; milestone 2's runs
