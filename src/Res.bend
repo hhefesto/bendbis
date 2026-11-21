@@ -265,8 +265,7 @@ def tld.def_x(t: C.Tld) -> U32:
 def P.more(+col: U32) -> L.P(Bool):
   do L.P<Bool>:
     +c : L.Cur <- L.P.cur()
-    e : L.Env <- L.P.env()
-    return Bool.or(T.prefix(L.cur.rest(c), [59]), Bool.and(U32.is_lt(L.cur.pos(c), U32.from_nat(T.len(L.env.txt(e)))), U32.is_eq(L.cur.col(c), col)))
+    return Bool.or(T.prefix(L.cur.rest(c), [59]), Bool.and(Bool.not(List.is_empty(&2, U32, L.cur.rest(c))), U32.is_eq(L.cur.col(c), col)))
 
 # parse_do_end
 def do_end.if(z: Bool) -> L.P(Unit):

@@ -47,13 +47,17 @@ will be explicit maps threaded through the checker (milestone 2).
 | `src/Err.bend` | `err_show`, `err_lost_type` (1500-1538) | errors as bend.ts prints them, the caret in UTF-16 columns |
 | `src/Path.bend` | node's `path.posix` | normalize, resolve, relative; the import path rule |
 | `src/Load.bend` | `book_load` (940-1040) | import lines, one load per real path, cycles; Base parsed once a process and shared as a layer |
-| `src/Main.bend` | main.ts | the command line (now: `bendbis parse FILE..`) |
+| `src/Wnf.bend` | WNF, SNF, Compare (2880-3330), `term_apply`, `lhs_ext`, `lit_step` | the checker's book (`Td`), the whnf machine (frames, the stuck call it rebuilds), `term_snf` lowered (what errors print), `term_compare` as a work list (the rigid pass, then the book) |
+| `src/Check.bend` | Check (3330-3917): `term_infer`, `term_check`, `tele_check`, `term_check_kind`, `uses_close`, `term_descend`, `book_adt`, `ctx_dead`, `def_check`, `def_inst`, `term_key` | one recursive def, `ck.go`, whose jobs are the rules' premises, in a state monad `K` (the book as it grows, template instances, the names a def refers to) |
+| `src/Valid.bend` | `book_valid` (3917-4021); main.ts's `book_read` TODO count, `cli_verdict`, `book_promises`; `err_show` with a context | the book from the loader's files, its events, the verdict and its flood |
+| `src/Gate2.bend` | main.ts `--check-only` | `bendbis FILE --check-only`, and `bendbis gate2` |
+| `src/Main.bend` | main.ts | the command line |
+| `src/LAWS.bend` | | laws about bendbis's own functions, proven in Bend |
 
 To come, in this order:
 
 | milestone | bend.ts / comp.ts | bendbis |
 |---|---|---|
-| 2 | WNF, SNF, Compare, Check, Valid (2880-4021); `expr_show` and `err_show` with a context; main.ts's `book_read`, `cli_verdict`, `book_promises`, the TODO count | `src/Wnf.bend`, `Cmp.bend`, `Check.bend`, `Valid.bend`, `Verdict.bend` |
 | 4 | `term_snf` run of `main`, IO's interpreter | `src/Run.bend` |
 | 5 | comp.ts: layouts, ANF, Emit, the C emitter and the C runtime it carries as text (3132-6454) | `src/Comp*.bend` |
 | 6 | comp.ts's device dialects (CUDA through NVRTC) | `src/Cuda*.bend` |
@@ -117,6 +121,55 @@ whose shared expansions should make them fit.
 upstream prints, byte for byte (stdout and stderr, the exit code), on all
 1,879 tests and ana's 253 files (2.0.39 for ana).
 
+The gate is `gate/m2file.sh` over each set, 8 files at a time on delfos (one
+bendbis process a file, as upstream is run): bendbis's output and exit
+code against upstream's saved ones (milestone 1's), byte for byte.
+
+Status, 2026-11-21 (delfos): not yet passed; every output bendbis gives is
+upstream's, and 8 files give none in time.
+
+| set | files | as upstream, byte for byte | otherwise | timed out |
+|---|---|---|---|---|
+| upstream's tests and base.bend (HEAD) | 1,880 | 1,878 | 0 | 2 (60 s) |
+| the guide's examples (HEAD) | 28 | 28 | 0 | 0 |
+| ana's bend/ (2.0.39) | 253 | 247 | 0 | 6 (300 s) |
+
+The two tests that time out need bend.ts's share cells: in
+`tests/base/u32_native_model.bend` Base's U32 ops run bit by bit on 32-bit
+words and each carry is read twice; `conversion_shared_cells_three_way`
+compares 18-deep chains of `+a(n) = m(a(n-1), a(n-1))`, which bend.ts
+walks once by linking cells it found equal. ana's six are
+CorpusV2.bend and the five files that import it (`c2.args`, milestone 1's
+11,402,874-node expansion). Next: share cells, scoped to one whnf, snf or
+comparison and resolved at its end (so no cell reaches the checker's
+terms), which keeps every output and makes those runs linear.
+
+**Speed: bendbis against upstream.** The goal (2026-11-21): bendbis's wall
+time under upstream bend's on the same inputs, every gate still exact.
+Measured on delfos, both run one process a file (`gate/time.sh`, 4 files
+at a time for a corpus; a single file three times, the middle run), upstream
+at HEAD under bun (2.0.39 for ana):
+
+| input | upstream | bendbis | bendbis / upstream |
+|---|---|---|---|
+| upstream's tests and base.bend (1,880 files) | 209.4 s | 272.3 s (one file out at 120 s) | 1.30 |
+| the guide's examples (28) | 1.53 s | 1.57 s | 1.03 |
+| base.bend | 0.127 s | 0.252 s | 1.98 |
+| a file with no `import Base` (10 defs) | 0.030 s | 0.003 s | 0.10 |
+| ana's bend/Everything.bend | 1.16 to 1.53 s | 5.3 to 6.7 s | about 4.5 |
+
+Not faster yet. Where bendbis's time goes (perf, user space): reading
+base.bend is about 180 ms of its 252, checking it about 70; of the reading,
+half is the runtime freeing and sharing memory (`term_drop`, `span_fade`),
+then closures (the parser's monad). Fixed so far, each the `Bool.pick` kind
+of trap (both arms run): `Show.chain` and `Show.arr.of` walked a whole
+term at every node it printed (the 3,000-deep error page took minutes),
+five of Valid's list walks were 2^n (the verdict's own defs), and the
+parser measured the rest of the file at each string literal and each
+block line (`T.len` of the cursor: quadratic). Next, in this order: share
+cells (above), the parser's state and text representation (the runtime's
+memory traffic), and Base read once a build.
+
 **Milestone 3, ana checked fast.** Milestone 2's outputs, with bendbis
 checking ana's tree faster than upstream: `bend/Everything.bend` under
 upstream's 1.08 s (delfos), and the 253 files' sum under upstream's (olimpo:
@@ -133,7 +186,38 @@ the `!` tests; then ana's dense step with its bulk ops in Bend, gated on
 ana's own checks (tests/dense.bend against the tree trainer, the
 dense-identity losses) and timed against run 9's 858 ms a step.
 
+**Laws, and BendTT in Bend (asked 2026-11-21).** bendbis's own functions
+get laws proven in Bend (`src/LAWS.bend` and per module), each passing
+`bend --verdict`; and BendTT, upstream's kernel proven in Lean
+(`bend2/bendtt.lean`: confluence, halting, consistency, adequacy), is
+ported to Bend, its terms, evaluator and checker as Bend data and defs and
+its claims as Bend theorems, in bendtt.lean's lemma order: the milestone
+after 2. Status: `src/LAWS.bend` holds 13 laws on the quantity algebra
+the checker's usage rides on (`q.add`, `q.join`, `q.dem`, `q.show`): ALL
+PROOFS CHECK under upstream; `--verdict` waits for Lean v4.34.0 on delfos
+(the kernel it builds).
+
 ## What bendbis does differently (same output, other cost)
+
+- **No share cells (yet).** bend.ts's machine wraps each argument in a
+  cell it overwrites with the argument's whnf, and its comparison links two
+  cells it found equal; bendbis passes the argument itself, so a value read
+  twice is evaluated twice. Every verdict and message is the same; what
+  differs is the cost (the two tests above) and the identity shortcuts
+  bend.ts's comparison takes (`a === b` before and after the whnfs). Of
+  those, bendbis keeps the one the gate needs: two refs of one name are
+  equal before either is unfolded (`F() -> Type: @-x: F -> Empty` unfolds
+  forever otherwise), which changes no answer the walk would give.
+- **Base, once a process, and only when imported.** Base names nothing of
+  an entry's, and nothing before it in book.order names a def of Base's, so
+  its check is the same in every book: bendbis checks it once (when a file
+  imports it) and, at Base's place in book.order, joins its checked defs,
+  instances and names to the book, as bend.ts's own events would have left
+  them. An entry with no `import Base` reads no Base at all.
+- **The elaborated term.** bend.ts's def_check returns an Ann-wrapped
+  LTerm, read later only by book_promises (its names); bendbis keeps the
+  names it would walk (each node's own name, and the first-order part of
+  each node's type), counted only for premises whose term bend.ts keeps.
 
 - **The environment of term_higher.** bend.ts walks a list of binders for
   each variable. A flattened match wraps each row's body in one `Sub` per

@@ -338,16 +338,16 @@ def entry.fr(fs: List<&2, Ld.Fr>) -> Ld.Fr:
     case Con{f, t}:
       f
     case Nil{}:
-      Ld.Fr{"", "", Nil{}, Nil{}}
+      Ld.Fr{"", "", Nil{}, Nil{}, Nil{}, 0}
 
 def fr.ds(f: Ld.Fr) -> List<&2, C.Dcl>:
   match f:
-    case Ld.Fr{p, ns, al, ds}:
+    case Ld.Fr{p, ns, al, ds, tx, fi}:
       ds
 
 def fr.al(f: Ld.Fr) -> List<&2, L.Al>:
   match f:
-    case Ld.Fr{p, ns, al, ds}:
+    case Ld.Fr{p, ns, al, ds, tx, fi}:
       al
 
 def dcl.vals(ds: List<&2, C.Dcl>) -> List<&2, C.Tm>:

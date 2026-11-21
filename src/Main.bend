@@ -6,14 +6,18 @@ import ./Path.bend as Pa
 import ./Err.bend as E
 import ./Load.bend as Ld
 import ./Gate.bend as G
+import ./Gate2.bend as G2
 
 # bendbis: Bend implemented in Bend. Copyright 2026 HigherOrderCO (upstream
 # bendlang/bend) and hhefesto; Apache-2.0, see LICENSE and NOTICE.
 #
 # Main: the command line.
 #
+#   bendbis FILE --check-only   bend FILE --check-only: upstream's verdict,
+#                               its text, stream and exit code
 #   bendbis parse FILE..   read each FILE as bend would (its imports, Base
 #                          once), print upstream's error or what it read
+#   bendbis gate2 UP OUT FILE..   milestone 2's gate (Gate2.bend)
 #
 # The environment: BENDBIS_BASE, the base.bend to read (default
 # $HOME/src/bend2-upstream/bend2/base.bend); BEND_LIB as bend reads it.
@@ -45,7 +49,7 @@ def fr.count(fs: List<&2, Ld.Fr>, n: U32) -> U32:
   match fs:
     case Nil{}:
       n
-    case Con{Ld.Fr{p, ns, al, ds}, t}:
+    case Con{Ld.Fr{p, ns, al, ds, tx, fi}, t}:
       fr.count(t, (n + U32.from_nat(List.length(&2, C.Dcl, ds)) : U32))
 
 # the term nodes of a file's declarations: types and values
@@ -62,7 +66,7 @@ def fr.size(fs: List<&2, Ld.Fr>, +n: U32) -> U32:
   match fs:
     case Nil{}:
       n
-    case Con{Ld.Fr{p, ns, al, ds}, t}:
+    case Con{Ld.Fr{p, ns, al, ds, tx, fi}, t}:
       fr.size(t, ds.size(ds, n))
 
 def show.ok(+file: String, ld: Ld.Ld) -> String:
@@ -123,7 +127,7 @@ def main.parse(fs: List<String>, c: Cfg) -> IO(Unit):
         main.parse.go(base.err(br), fs, Cfg{cwd, bp, lib}, base.of(br))
 
 def USAGE() -> String:
-  "usage: bendbis parse FILE..\n       bendbis gate1 UPDIR OUTDIR FILE.. (BENDBIS_RT_CAP: the round trip's term size cap)\n       bendbis blocks MD STEM (each ```python block of MD as STEM_NN.bend)"
+  "usage: bendbis FILE --check-only\n       bendbis parse FILE..\n       bendbis gate2 UPDIR OUTDIR FILE..\n       bendbis gate1 UPDIR OUTDIR FILE.. (BENDBIS_RT_CAP: the round trip's term size cap)\n       bendbis blocks MD STEM (each ```python block of MD as STEM_NN.bend)"
 
 def gate1.base(e: Maybe<&2, String>, fs: List<String>, c: Cfg, base: L.Bk, +cap: U32) -> IO(Unit):
   match e fs c:
@@ -143,13 +147,25 @@ def main.gate1(fs: List<String>, c: Cfg) -> IO(Unit):
         gate1.base(base.err(br), fs, Cfg{cwd, bp, lib}, base.of(br), Maybe.default(&2, U32, U32.read(cs), 2000000))
 
 def main.code(+cmd: String) -> Nat:
-  Bool.pick(Nat, String.eq(cmd, "parse"), 1n, Bool.pick(Nat, String.eq(cmd, "gate1"), 2n, Bool.pick(Nat, String.eq(cmd, "blocks"), 3n, 0n)))
+  Bool.pick(Nat, String.eq(cmd, "parse"), 1n, Bool.pick(Nat, String.eq(cmd, "gate1"), 2n, Bool.pick(Nat, String.eq(cmd, "blocks"), 3n, Bool.pick(Nat, String.eq(cmd, "gate2"), 4n, 0n))))
 
 def main.blocks(fs: List<String>) -> IO(Unit):
   match fs:
     case Con{md, Con{stem, Nil{}}}:
       G.blocks(md, stem)
     case _:
+      IO.die(Unit, 2, USAGE())
+
+def main.check(+f: String, c: Cfg) -> IO(Unit):
+  match c:
+    case Cfg{cwd, bp, lib}:
+      G2.check.main(f, cwd, bp, lib)
+
+def main.gate2(fs: List<String>, c: Cfg) -> IO(Unit):
+  match fs c:
+    case Con{up, Con{out, files}} Cfg{cwd, bp, lib}:
+      G2.gate.run(files, cwd, bp, lib, up, out)
+    case _ _:
       IO.die(Unit, 2, USAGE())
 
 def main.cmd(k: Nat, fs: List<String>, c: Cfg) -> IO(Unit):
@@ -160,11 +176,22 @@ def main.cmd(k: Nat, fs: List<String>, c: Cfg) -> IO(Unit):
       main.gate1(fs, c)
     case 3n:
       main.blocks(fs)
+    case 4n:
+      main.gate2(fs, c)
     case _:
       IO.die(Unit, 2, USAGE())
 
+def main.two(z: Bool, +f: String, +o: String, c: Cfg) -> IO(Unit):
+  match z:
+    case True{}:
+      main.check(f, c)
+    case False{}:
+      main.cmd(main.code(f), [o], c)
+
 def main.go(args: List<String>, c: Cfg) -> IO(Unit):
   match args:
+    case Con{+f, Con{+o, Nil{}}}:
+      main.two(String.eq(o, "--check-only"), f, o, c)
     case Con{+cmd, fs}:
       main.cmd(main.code(cmd), fs, c)
     case Nil{}:

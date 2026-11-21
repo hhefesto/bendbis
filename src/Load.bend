@@ -66,9 +66,11 @@ def slurp(path: String) -> IO(Maybe<&2, List<&2, U32>>):
 # The loader's state
 # ------------------
 
-# a file loaded: its real path, namespace, aliases and declarations
+# a file loaded: its real path, namespace, aliases, declarations, and the
+# text its spans point into (its import lines blanked); its id. Where Base
+# joined the book (the first import of it), a mark: the path "", no text
 type Fr is Data:
-  Fr{path: String, ns: String, al: List<&2, L.Al>, ds: List<&2, C.Dcl>}
+  Fr{path: String, ns: String, al: List<&2, L.Al>, ds: List<&2, C.Dcl>, txt: List<&2, U32>, fid: U32}
 
 # a path seen: done, or still loading (an import of it is a cycle)
 type Sn is Data:
@@ -130,11 +132,24 @@ def ld.lib(ld: Ld) -> String:
     case Ld{bk, seen, files, fid, base, lib}:
       lib
 
-# Base joins the book: its layer on, its path seen
+# a mark where Base first joins the book
+def base.place(on: Bool, files: List<&2, Fr>) -> List<&2, Fr>:
+  match on:
+    case True{}:
+      files
+    case False{}:
+      Fr{"", "", Nil{}, Nil{}, Nil{}, 0} <> files
+
+def bk.bon(b: L.Bk) -> Bool:
+  match b:
+    case L.Bk{tl, ct, btl, bct, bon, hols}:
+      bon
+
+# Base joins the book: its layer on, its path seen, its place marked
 def ld.base_on(ld: Ld) -> Ld:
   match ld:
-    case Ld{bk, seen, files, fid, +base, lib}:
-      Ld{L.bk.base_on(bk), Sn{base, True{}} <> seen, files, fid, base, lib}
+    case Ld{+bk, seen, files, fid, +base, lib}:
+      Ld{L.bk.base_on(bk), Sn{base, True{}} <> seen, base.place(bk.bon(bk), files), fid, base, lib}
 
 def ld.parsed(bk: L.Bk, f: Fr, ld: Ld) -> Ld:
   match ld:
@@ -389,7 +404,7 @@ def lr.then(r: LR, k: Ld -> IO(LR)) -> IO(LR):
 def parse.fin.env(st: L.St, fc: Fc, ld: Ld) -> LR:
   match st fc:
     case L.St{c, L.Env{txt, fid, ns, al, dir, frs, sc, dep, ann, bk, ds}} Fc{+real, d2, top, ns2, t2, al2}:
-      LOk{ld.finish(real, ld.parsed(bk, Fr{real, ns, al, List.reverse(&2, C.Dcl, ds)}, ld))}
+      LOk{ld.finish(real, ld.parsed(bk, Fr{real, ns, al, List.reverse(&2, C.Dcl, ds), txt, fid}, ld))}
 
 def parse.fin(r: L.R<X.PV>, +fc: Fc, +ld: Ld) -> LR:
   match r:
@@ -501,6 +516,11 @@ def mb.then(m: Maybe<&2, List<&2, U32>>, +e: C.Er, k: List<&2, U32> -> IO(LR)) -
 def line.len(xs: List<&2, U32>) -> U32:
   U32.from_nat(List.length(&2, U32, xs))
 
+# the loader's answer when a file imports Base and the entry was read
+# with no Base layer (its caller reads Base, then the entry again)
+def NEED_BASE() -> String:
+  "bendbis: Base is needed"
+
 type LJ is Data:
   LjRead{bytes: List<&2, U32>, file: String, ns: String, top: Maybe<&2, String>, sp: Maybe<&2, C.Er>}
   LjSeen{n: Nat, bytes: List<&2, U32>, file: String, ns: String, top: Maybe<&2, String>, sp: Maybe<&2, C.Er>}
@@ -508,6 +528,7 @@ type LJ is Data:
   LjLines{fc: Fc, ls: List<&2, List<&2, U32>>, at: U32, out: List<&2, List<&2, U32>>}
   LjLine{role: Nat, fc: Fc, l: List<&2, U32>, ls: List<&2, List<&2, U32>>, at: U32, out: List<&2, List<&2, U32>>}
   LjIm{im: Im, fc: Fc, l: List<&2, U32>, ls: List<&2, List<&2, U32>>, at: U32, out: List<&2, List<&2, U32>>}
+  LjBase{none: Bool, fc: Fc, l: List<&2, U32>, ls: List<&2, List<&2, U32>>, at: U32, out: List<&2, List<&2, U32>>}
 
 def ld.go(+fuel: Nat, j: LJ, +ld: Ld) -> IO(LR):
   match fuel j:
@@ -545,13 +566,22 @@ def ld.go(+fuel: Nat, j: LJ, +ld: Ld) -> IO(LR):
         case _:
           IO.pure(LR, parse.file(fc, join.lines(List.append(&2, List<&2, U32>, List.reverse(&2, List<&2, U32>, out), l <> ls)), ld))
 
+    # import Base: its layer on, or, when the entry was read without one,
+    # the call for it (NEED_BASE)
+    case 1n+p LjBase{none, +fc, +l, +ls, +at, +out}:
+      match none:
+        case True{}:
+          lerr(C.ErRaw{NEED_BASE()})
+        case False{}:
+          ld.go(p, LjLines{fc, ls, ((at + line.len(l) : U32) + 1 : U32), Nil{} <> out}, ld.base_on(ld))
+
     case 1n+p LjIm{im, +fc, +l, +ls, +at, +out}:
       match im:
         case ImNo{}:
           +line = trim(l)
           lerr(imp.err("an import ('import Base', or 'import <path> as <Name>')", Some{q(T.str(line))}, fc.txt(fc), ld.fid(ld), (at + index.of.go(l, line, 0) : U32)))
         case ImBase{}:
-          ld.go(p, LjLines{fc, ls, ((at + line.len(l) : U32) + 1 : U32), Nil{} <> out}, ld.base_on(ld))
+          ld.go(p, LjBase{String.is_empty(ld.base(ld)), fc, l, ls, at, out}, ld)
         case ImYes{+m1, None{}}:
           +line = trim(l)
           lerr(imp.err("an import ('import Base', or 'import <path> as <Name>')", Some{q(T.str(line))}, fc.txt(fc), ld.fid(ld), (at + index.of.go(l, m1, 0) : U32)))
@@ -595,12 +625,16 @@ def base.layer(bk: L.Bk) -> L.Bk:
 def ld.new(+base: String, bk: L.Bk, lib: String) -> Ld:
   Ld{bk, Nil{}, Nil{}, 0, base, lib}
 
+# Base's file id: its spans point into it, not into an entry's files
+def BASE_FID() -> U32:
+  1000000
+
 # load base.bend (at its real path) into an empty book: the Base layer
 def base.load(+path: String, lib: String) -> IO(LR):
   do IO<LR>:
     mb : Maybe<&2, List<&2, U32>> <- slurp(path)
     mb.then(mb, C.ErRaw{"bendbis: cannot read Base at " ++ path}, bytes =>
-      ld.go(4294967295n, LjRead{bytes, path, "", None{}, None{}}, ld.new(path, L.bk.nil(), lib)))
+      ld.go(4294967295n, LjRead{bytes, path, "", None{}, None{}}, Ld{L.bk.nil(), Nil{}, Nil{}, BASE_FID(), path, lib}))
 
 # the loader state for a new entry over the Base layer
 def ld.entry(+base: String, bk: L.Bk, lib: String) -> Ld:

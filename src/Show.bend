@@ -207,12 +207,20 @@ def nat.of(t: C.Tm, +n: U32) -> Maybe<&2, U32>:
 
 # term_show_chain(t, k, n): the first fields of nested k{..}s, and the rest
 # term_show_chain(t, k, n): the first fields of nested k{..}s, and the rest
+# a chain step: on (k matches) go on with next, else stop at t
+def chain.at(z: Bool, t: C.Tm, acc: List<&2, C.Tm>, rest: Unit -> List<&2, C.Tm> & C.Tm) -> List<&2, C.Tm> & C.Tm:
+  match z:
+    case True{}:
+      rest(Unit{})
+    case False{}:
+      (List.reverse(&2, C.Tm, acc), t)
+
 def chain(+k: String, +n: U32, t: C.Tm, +acc: List<&2, C.Tm>) -> List<&2, C.Tm> & C.Tm:
   match t:
     case C.TCtr{+c, Con{+h, Con{+r, Nil{}}}, +s}:
-      Bool.pick(List<&2, C.Tm> & C.Tm, Bool.and(String.eq(c, k), U32.is_eq(n, 2)), chain(k, n, r, h <> acc), (List.reverse(&2, C.Tm, acc), C.TCtr{c, [h, r], s}))
+      chain.at(Bool.and(String.eq(c, k), U32.is_eq(n, 2)), C.TCtr{c, [h, r], s}, acc, u => chain(k, n, r, h <> acc))
     case C.TCtr{+c, Con{+h, Nil{}}, +s}:
-      Bool.pick(List<&2, C.Tm> & C.Tm, Bool.and(String.eq(c, k), U32.is_eq(n, 1)), chain(k, n, h, h <> acc), (List.reverse(&2, C.Tm, acc), C.TCtr{c, [h], s}))
+      chain.at(Bool.and(String.eq(c, k), U32.is_eq(n, 1)), C.TCtr{c, [h], s}, acc, u => chain(k, n, h, h <> acc))
     case t:
       (List.reverse(&2, C.Tm, acc), t)
 
@@ -277,12 +285,19 @@ def arr.cat(a: Maybe<&2, List<&2, C.Tm>>, b: Maybe<&2, List<&2, C.Tm>>) -> Maybe
     case _ _:
       None{}
 
+def arr.node(z: Bool, rest: Unit -> Maybe<&2, List<&2, C.Tm>>) -> Maybe<&2, List<&2, C.Tm>>:
+  match z:
+    case True{}:
+      rest(Unit{})
+    case False{}:
+      None{}
+
 def arr.of(t: C.Tm) -> Maybe<&2, List<&2, C.Tm>>:
   match t:
     case C.TCtr{k, Con{x, Nil{}}, s}:
       Bool.pick(Maybe<&2, List<&2, C.Tm>>, String.eq(k, "ALeaf"), Some{[x]}, None{})
     case C.TCtr{k, Con{l, Con{r, Nil{}}}, s}:
-      Bool.pick(Maybe<&2, List<&2, C.Tm>>, String.eq(k, "ANode"), arr.cat(arr.of(l), arr.of(r)), None{})
+      arr.node(String.eq(k, "ANode"), u => arr.cat(arr.of(l), arr.of(r)))
     case _:
       None{}
 
@@ -389,11 +404,19 @@ def cs.tup(r: List<&2, C.Tm> & C.Tm, +k: String, +xs: List<&2, C.Tm>, +fl: Fl) -
     case Con{y, r}:
       CsTup{List.append(&2, C.Tm, Con{y, r}, [t])}
 
+# no Con: Nil{} alone is [], anything else may be a tuple
+def cs.lst.nil(z: Bool, +k: String, +xs: List<&2, C.Tm>, +fl: Fl) -> Cs:
+  match z:
+    case True{}:
+      CsList{Nil{}}
+    case False{}:
+      cs.tup(chain("Tuple", 2, C.TCtr{k, xs, C.NoSp{}}, Nil{}), k, xs, fl)
+
 def cs.lst(r: List<&2, C.Tm> & C.Tm, +k: String, +xs: List<&2, C.Tm>, +fl: Fl) -> Cs:
   (ys, +t) = r
   match ys:
     case Nil{}:
-      cs.tup(chain("Tuple", 2, C.TCtr{k, xs, C.NoSp{}}, Nil{}), k, xs, fl)
+      cs.lst.nil(is.nil(t), k, xs, fl)
     case Con{+y, +r}:
       Bool.pick(Cs, is.nil(t), CsList{Con{y, r}}, CsCons{Con{y, r}, t})
 

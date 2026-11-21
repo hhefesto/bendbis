@@ -15,14 +15,15 @@ import ./Core.bend as C
 
 type H is Data:
   HVar{k: String, i: U32, s: C.Sp}
+  HVal{k: String, i: U32, s: C.Sp, v: H}
   HRef{k: String, s: C.Sp, b: Bool}
-  HLet{bs: List<&2, HB>, ev: Em, f: C.Tm, s: C.Sp}
+  HLet{bs: List<&2, HB>, cl: Cl, s: C.Sp}
   HTyp{g: H, s: C.Sp}
   HQnt{s: C.Sp}
   HQua{q: C.Q, s: C.Sp}
   HMin{a: H, b: H, s: C.Sp}
-  HAll{q: C.Q, k: String, i: U32, A: H, ev: Em, B: C.Tm, s: C.Sp}
-  HLam{k: String, i: U32, ev: Em, f: C.Tm, s: C.Sp, q: C.Q}
+  HAll{q: C.Q, k: String, i: U32, A: H, cl: Cl, s: C.Sp}
+  HLam{k: String, i: U32, cl: Cl, s: C.Sp, q: C.Q}
   HApp{f: H, x: H, s: C.Sp}
   HAdt{k: String, x: List<&2, H>, r: List<&2, String>, s: C.Sp}
   HCtr{k: String, x: List<&2, H>, s: C.Sp}
@@ -40,6 +41,23 @@ type H is Data:
 
 type HB is Data:
   HB{k: String, i: U32, q: C.Q, v: H}
+
+# a binder's closure (bend.ts's JS functions, as data): term_higher's, a body
+# read in its environment with index i (a Let's, one index a binding)
+# bound to the argument; lhs_ext's, the stuck call t waiting for n more of
+# the fields of k (xs, the ones so far, newest first); check-rwt's motive
+# type; a constant; check-mat's goal for a case's fields (Check.bend)
+type Cl is Data:
+  ClH{ev: Em, i: U32, b: C.Tm}
+  ClL{ev: Em, ms: List<&2, Bm>, b: C.Tm}
+  ClExt{t: H, k: String, n: U32, xs: List<&2, H>}
+  ClRwt{a: H, T: H, s: C.Sp}
+  ClK{t: H}
+  ClMat{tq: C.Q, tb: Cl, cb: Cl, n: U32, xs: List<&2, H>, k: String, s: C.Sp}
+
+# a Let binding's name, index and quantity
+type Bm is Data:
+  Bm{k: String, i: U32, q: C.Q}
 
 # an environment entry: nothing, an HTerm, or a Sub's pattern, read in its
 # own environment at the occurrence's span
@@ -73,9 +91,11 @@ def h.s(h: H) -> C.Sp:
   match h:
     case HVar{k, i, s}:
       s
+    case HVal{k, i, s, v}:
+      s
     case HRef{k, s, b}:
       s
-    case HLet{bs, ev, f, s}:
+    case HLet{bs, cl, s}:
       s
     case HTyp{g, s}:
       s
@@ -85,9 +105,9 @@ def h.s(h: H) -> C.Sp:
       s
     case HMin{a, b, s}:
       s
-    case HAll{q, k, i, A, ev, B, s}:
+    case HAll{q, k, i, A, cl, s}:
       s
-    case HLam{k, i, ev, f, s, q}:
+    case HLam{k, i, cl, s, q}:
       s
     case HApp{f, x, s}:
       s
@@ -122,10 +142,12 @@ def h.with_sp(h: H, s: C.Sp) -> H:
   match h:
     case HVar{k, i, u}:
       HVar{k, i, s}
+    case HVal{k, i, u, v}:
+      HVal{k, i, s, v}
     case HRef{k, u, b}:
       HRef{k, s, b}
-    case HLet{bs, ev, f, u}:
-      HLet{bs, ev, f, s}
+    case HLet{bs, cl, u}:
+      HLet{bs, cl, s}
     case HTyp{g, u}:
       HTyp{g, s}
     case HQnt{u}:
@@ -134,10 +156,10 @@ def h.with_sp(h: H, s: C.Sp) -> H:
       HQua{q, s}
     case HMin{a, b, u}:
       HMin{a, b, s}
-    case HAll{q, k, i, A, ev, B, u}:
-      HAll{q, k, i, A, ev, B, s}
-    case HLam{k, i, ev, f, u, q}:
-      HLam{k, i, ev, f, s, q}
+    case HAll{q, k, i, A, cl, u}:
+      HAll{q, k, i, A, cl, s}
+    case HLam{k, i, cl, u, q}:
+      HLam{k, i, cl, s, q}
     case HApp{f, x, u}:
       HApp{f, x, s}
     case HAdt{k, x, r, u}:
@@ -166,6 +188,26 @@ def h.with_sp(h: H, s: C.Sp) -> H:
       HHol{k, s}
     case HAnn{x, T, u}:
       HAnn{x, T, s}
+
+# term_force and term_strip: through a Var's value, and through annotations
+def h.force(h: H) -> H:
+  match h:
+    case HVal{k, i, s, v}:
+      h.force(v)
+    case h:
+      h
+
+def h.strip.go(h: H) -> H:
+  match h:
+    case HVal{k, i, s, v}:
+      h.strip.go(v)
+    case HAnn{x, A, s}:
+      h.strip.go(x)
+    case h:
+      h
+
+def h.strip(h: H) -> H:
+  h.strip.go(h)
 
 def h.is_cell(h: H) -> Bool:
   match h:
@@ -323,9 +365,6 @@ type Sh is Data:
   ShAnn{s: C.Sp}
   ShLet{ms: List<&2, Bm>, ev: Em, f: C.Tm, s: C.Sp}
 
-# a Let binding's name, index and quantity
-type Bm is Data:
-  Bm{k: String, i: U32, q: C.Q}
 
 # a node term_lower rebuilds once its parts are lowered
 type Lsh is Data:
@@ -342,10 +381,11 @@ type Lsh is Data:
   LAnn{s: C.Sp}
   LLet{ms: List<&2, Bm>, d: U32, s: C.Sp}
 
-# a part to lower: an HTerm, or a binder's body read in its environment
+# a part to lower: an HTerm, or a closure applied (to fresh variables)
 type Lt is Data:
   LtH{h: H, d: U32}
-  LtB{t: C.Tm, ev: Em, d: U32}
+  LtC{cl: Cl, x: H, d: U32}
+  LtCL{cl: Cl, xs: List<&2, H>, d: U32}
 
 type HJ is Data:
   JH{t: C.Tm, ev: Em}
@@ -353,6 +393,11 @@ type HJ is Data:
   JHs2{r: HR, ts: List<&2, C.Tm>, ev: Em, acc: List<&2, H>}
   JHk{r: HR, sh: Sh}
   JBeta{f: H, x: H, s: C.Sp}
+  JApply{cl: Cl, x: H}
+  JApplyL{cl: Cl, xs: List<&2, H>}
+  JTApply{f: H, x: H, s: C.Sp}
+  JTA2{g: H, x: H, s: C.Sp}
+  JExt{one: Bool, t: H, k: String, n: U32, xs: List<&2, H>}
   JVar{cell: Bool, fd: Fd, k: String, s: C.Sp}
   JRef{op: Bool, k: String, s: C.Sp, b: Bool}
   JL{h: H, d: U32}
@@ -396,13 +441,21 @@ def hb.tasks(bs: List<&2, HB>, +d: U32) -> List<&2, Lt>:
     case Con{HB{k, i, q, v}, t}:
       LtH{v, d} <> hb.tasks(t, d)
 
-# the Let body's environment: binding j at its index is Var(k_j, d + j)
-def let.env(ms: List<&2, Bm>, +d: U32, ev: Em) -> Em:
+# the Let body's variables, Var(k_j, d + j)
+def let.vars(ms: List<&2, Bm>, +d: U32) -> List<&2, H>:
   match ms:
     case Nil{}:
-      ev
+      Nil{}
     case Con{Bm{k, i, q}, t}:
-      let.env(t, (d + 1 : U32), em.set(ev, i, EvH{HVar{k, d, C.NoSp{}}}))
+      HVar{k, d, C.NoSp{}} <> let.vars(t, (d + 1 : U32))
+
+# the Let closure's environment: each binding's index to its value
+def let.bind(ms: List<&2, Bm>, xs: List<&2, H>, ev: Em) -> Em:
+  match ms xs:
+    case Con{Bm{k, +i, q}, m} Con{x, t}:
+      let.bind(m, t, em.set(ev, i, EvH{x}))
+    case _ _:
+      ev
 
 def bnds.zip(ms: List<&2, Bm>, +d: U32, ts: List<&2, C.Tm>) -> List<&2, C.Bnd>:
   match ms ts:
@@ -418,8 +471,8 @@ def h.build(sh: Sh, hs: List<&2, H>) -> H:
       HTyp{g, s}
     case ShMin{s} Con{a, Con{b, t}}:
       HMin{a, b, s}
-    case ShAll{q, k, i, ev, B, s} Con{A, t}:
-      HAll{q, k, i, A, ev, B, s}
+    case ShAll{q, k, +i, ev, B, s} Con{A, t}:
+      HAll{q, k, i, A, ClH{ev, i, B}, s}
     case ShAdt{k, r, s} xs:
       HAdt{k, xs, r, s}
     case ShCtr{k, s} xs:
@@ -432,8 +485,8 @@ def h.build(sh: Sh, hs: List<&2, H>) -> H:
       HRwt{e, p, f, s}
     case ShAnn{s} Con{x, Con{A, t}}:
       HAnn{x, A, s}
-    case ShLet{ms, ev, f, s} vs:
-      HLet{hb.zip(ms, vs), ev, f, s}
+    case ShLet{+ms, ev, f, s} vs:
+      HLet{hb.zip(ms, vs), ClL{ev, ms, f}, s}
     case _ _:
       HEfq{C.NoSp{}}
 
@@ -516,10 +569,45 @@ def hm.go(+fuel: Nat, +txt: List<&2, U32>, j: HJ) -> HR:
           HRE{C.ErRaw{"bendbis: JHk"}}
     case 1n+p JBeta{f, x, s}:
       match f:
-        case HLam{k, i, ev, b, u, q}:
-          hm.go(p, txt, JH{b, em.set(ev, i, EvH{x})})
+        case HLam{k, i, cl, u, q}:
+          hm.go(p, txt, JApply{cl, x})
         case f:
           HRH{HApp{f, x, s}}
+    # a closure applied (term_apply's f.f(x)), and term_apply
+    case 1n+p JApply{cl, x}:
+      match cl:
+        case ClH{ev, +i, b}:
+          hm.go(p, txt, JH{b, em.set(ev, i, EvH{x})})
+        case ClL{ev, ms, b}:
+          hm.go(p, txt, JApplyL{ClL{ev, ms, b}, [x]})
+        case ClExt{t, k, +n, xs}:
+          hm.go(p, txt, JExt{U32.is_eq(n, 1), t, k, n, x <> xs})
+        case ClRwt{a, A, s}:
+          HRH{HAll{C.QL{}, "e", 0, HEql{a, x, A, C.NoSp{}}, ClK{HTyp{HQua{C.QL{}, C.NoSp{}}, C.NoSp{}}}, s}}
+        case ClK{t}:
+          HRH{t}
+        case ClMat{tq, tb, cb, n, xs, k, s}:
+          HRE{C.ErRaw{"bendbis: a check-mat goal opened without the book"}}
+    case 1n+p JApplyL{cl, xs}:
+      match cl:
+        case ClL{ev, ms, b}:
+          hm.go(p, txt, JH{b, let.bind(ms, xs, ev)})
+        case _:
+          HRE{C.ErRaw{"bendbis: a let closure expected"}}
+    case 1n+p JExt{one, t, k, n, xs}:
+      match one:
+        case True{}:
+          hm.go(p, txt, JTApply{t, HCtr{k, List.reverse(&2, H, xs), C.NoSp{}}, C.NoSp{}})
+        case False{}:
+          HRH{HLam{"_", 0, ClExt{t, k, (n - 1 : U32), xs}, C.NoSp{}, C.QL{}}}
+    case 1n+p JTApply{f, x, s}:
+      hm.go(p, txt, JTA2{h.strip(f), x, s})
+    case 1n+p JTA2{g, x, s}:
+      match g:
+        case HLam{k, i, cl, u, q}:
+          hm.go(p, txt, JApply{cl, x})
+        case g:
+          HRH{HApp{g, x, s}}
     case 1n+p JVar{cell, fd, +k, +s}:
       match cell:
         case True{}:
@@ -560,8 +648,8 @@ def hm.go(+fuel: Nat, +txt: List<&2, U32>, j: HJ) -> HR:
           hm.go(p, txt, JHk{hm.go(p, txt, JHs{[a, b], ev, Nil{}}), ShMin{s}})
         case C.TAll{q, k, i, A, B, s}:
           hm.go(p, txt, JHk{hm.go(p, txt, JHs{[A], ev, Nil{}}), ShAll{q, k, i, ev, B, s}})
-        case C.TLam{k, i, f, s, q}:
-          HRH{HLam{k, i, ev, f, s, q}}
+        case C.TLam{k, +i, f, s, q}:
+          HRH{HLam{k, i, ClH{ev, i, f}, s, q}}
         case C.TApp{f, x, s}:
           hm.go(p, txt, JHk{hm.go(p, txt, JHs{[f, x], ev, Nil{}}), ShApp{s}})
         case C.TAdt{k, xs, r, s}:
@@ -596,8 +684,10 @@ def hm.go(+fuel: Nat, +txt: List<&2, U32>, j: HJ) -> HR:
           HRTs{List.reverse(&2, C.Tm, acc)}
         case Con{LtH{h, d}, r}:
           hm.go(p, txt, JLs2{hm.go(p, txt, JL{h, d}), r, acc})
-        case Con{LtB{t, ev, d}, r}:
-          hm.go(p, txt, JLs2{hm.go(p, txt, JLB{hm.go(p, txt, JH{t, ev}), d}), r, acc})
+        case Con{LtC{cl, x, d}, r}:
+          hm.go(p, txt, JLs2{hm.go(p, txt, JLB{hm.go(p, txt, JApply{cl, x}), d}), r, acc})
+        case Con{LtCL{cl, xs, d}, r}:
+          hm.go(p, txt, JLs2{hm.go(p, txt, JLB{hm.go(p, txt, JApplyL{cl, xs}), d}), r, acc})
     case 1n+p JLs2{r, ts, acc}:
       match r:
         case HRT{t}:
@@ -626,11 +716,13 @@ def hm.go(+fuel: Nat, +txt: List<&2, U32>, j: HJ) -> HR:
       match h:
         case HVar{k, i, s}:
           HRT{C.TVar{k, i, s}}
+        case HVal{k, i, s, v}:
+          hm.go(p, txt, JL{v, d})
         case HRef{k, s, b}:
           HRT{C.TRef{k, s, b}}
-        case HLet{+bs, ev, f, s}:
+        case HLet{+bs, cl, s}:
           +ms = hb.metas(bs)
-          hm.go(p, txt, JLk{LLet{ms, d, s}, hm.go(p, txt, JLs{List.append(&2, Lt, hb.tasks(bs, d), [LtB{f, let.env(ms, d, ev), (d + U32.from_nat(List.length(&2, Bm, ms)) : U32)}]), Nil{}})})
+          hm.go(p, txt, JLk{LLet{ms, d, s}, hm.go(p, txt, JLs{List.append(&2, Lt, hb.tasks(bs, d), [LtCL{cl, let.vars(ms, d), (d + U32.from_nat(List.length(&2, Bm, ms)) : U32)}]), Nil{}})})
         case HTyp{g, s}:
           hm.go(p, txt, JLk{LTyp{s}, hm.go(p, txt, JLs{[LtH{g, d}], Nil{}})})
         case HQnt{s}:
@@ -639,10 +731,10 @@ def hm.go(+fuel: Nat, +txt: List<&2, U32>, j: HJ) -> HR:
           HRT{C.TQua{q, s}}
         case HMin{a, b, s}:
           hm.go(p, txt, JLk{LMin{s}, hm.go(p, txt, JLs{[LtH{a, d}, LtH{b, d}], Nil{}})})
-        case HAll{q, +k, i, A, ev, B, s}:
-          hm.go(p, txt, JLk{LAll{q, k, d, s}, hm.go(p, txt, JLs{[LtH{A, d}, LtB{B, em.set(ev, i, EvH{HVar{k, d, C.NoSp{}}}), (d + 1 : U32)}], Nil{}})})
-        case HLam{+k, i, ev, f, s, q}:
-          hm.go(p, txt, JLk{LLam{k, d, s, q}, hm.go(p, txt, JLs{[LtB{f, em.set(ev, i, EvH{HVar{k, d, C.NoSp{}}}), (d + 1 : U32)}], Nil{}})})
+        case HAll{q, +k, i, A, cl, s}:
+          hm.go(p, txt, JLk{LAll{q, k, d, s}, hm.go(p, txt, JLs{[LtH{A, d}, LtC{cl, HVar{k, d, C.NoSp{}}, (d + 1 : U32)}], Nil{}})})
+        case HLam{+k, i, cl, s, q}:
+          hm.go(p, txt, JLk{LLam{k, d, s, q}, hm.go(p, txt, JLs{[LtC{cl, HVar{k, d, C.NoSp{}}, (d + 1 : U32)}], Nil{}})})
         case HApp{f, x, s}:
           hm.go(p, txt, JLk{LApp{s}, hm.go(p, txt, JLs{[LtH{f, d}, LtH{x, d}], Nil{}})})
         case HAdt{k, xs, r, s}:

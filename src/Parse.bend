@@ -133,7 +133,7 @@ def str.lit(+beg: U32) -> L.P(X.PV):
   do L.P<X.PV>:
     L.P.bump()
     +c : L.Cur <- L.P.cur()
-    cs : List<&2, U32> <- X.str.go(1n+T.len(L.cur.rest(c)), Nil{})
+    cs : List<&2, U32> <- X.str.go(4294967295n, Nil{})
     spn : C.Sp <- R.P.span(beg)
     return X.PvT{X.lit.of(cs, spn)}
 
@@ -1869,7 +1869,7 @@ def ps.go(+fuel: Nat, j: PJ) -> L.P(X.PV):
             def.tpl(U32.is_gt(x, 0))
             P.set_tld(k, C.TlDef{X.tele.len(te), x, False{}, False{}, True{}})
             +c : L.Cur <- L.P.cur()
-            fs : List<&2, String> <- def.ffi.go(1n+T.len(L.cur.rest(c)), Nil{})
+            fs : List<&2, String> <- def.ffi.go(4294967295n, Nil{})
             P.decl(C.DDef{k, X.tele.len(te), x, T, None{}, u, fs, False{}, islaw})
             return X.PvU{})(st),
           st => (do L.P<X.PV>:
