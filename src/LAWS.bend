@@ -1,10 +1,14 @@
 import Base
 import ./Core.bend as C
+import ./Flat.bend as F
 
 # bendbis: Bend implemented in Bend. Copyright 2026 HigherOrderCO (upstream
 # bendlang/bend) and hhefesto; Apache-2.0, see LICENSE and NOTICE.
 #
-# LAWS: what bendbis's own functions satisfy, proven in Bend. This first
+# LAWS: what bendbis's own functions satisfy, proven in Bend, each passing
+# `bend src/LAWS.bend --verdict` (BendTT rechecks every proof). Below: the
+# quantity algebra, spans, application spines (term_apply and
+# term_unapply), and match flattening's pattern and row helpers. The first
 # set is the quantity algebra the checker's usage rides on (Core's q.add,
 # q.join, q.dem: bend.ts's quant_add, quant_join, quant_dem), the facts
 # check-lam, check-let and uses_close lean on: - is the unit of both, +
@@ -171,3 +175,494 @@ law q.show.all:
 
 def q.show.all():
   {==}
+
+# More of the algebra: both operations associate, + absorbs on either
+# side, and the predicates read it
+# ------------------------------------------------------------------
+
+law q.add.assoc:
+  for a: C.Q
+  for b: C.Q
+  for c: C.Q
+  {C.q.add(C.q.add(a, b), c) == C.q.add(a, C.q.add(b, c)) : C.Q}
+
+def q.add.assoc(a, b, c):
+  match a b c:
+    case C.QN{} C.QN{} C.QN{}:
+      {==}
+    case C.QN{} C.QN{} C.QL{}:
+      {==}
+    case C.QN{} C.QN{} C.QM{}:
+      {==}
+    case C.QN{} C.QL{} C.QN{}:
+      {==}
+    case C.QN{} C.QL{} C.QL{}:
+      {==}
+    case C.QN{} C.QL{} C.QM{}:
+      {==}
+    case C.QN{} C.QM{} C.QN{}:
+      {==}
+    case C.QN{} C.QM{} C.QL{}:
+      {==}
+    case C.QN{} C.QM{} C.QM{}:
+      {==}
+    case C.QL{} C.QN{} C.QN{}:
+      {==}
+    case C.QL{} C.QN{} C.QL{}:
+      {==}
+    case C.QL{} C.QN{} C.QM{}:
+      {==}
+    case C.QL{} C.QL{} C.QN{}:
+      {==}
+    case C.QL{} C.QL{} C.QL{}:
+      {==}
+    case C.QL{} C.QL{} C.QM{}:
+      {==}
+    case C.QL{} C.QM{} C.QN{}:
+      {==}
+    case C.QL{} C.QM{} C.QL{}:
+      {==}
+    case C.QL{} C.QM{} C.QM{}:
+      {==}
+    case C.QM{} C.QN{} C.QN{}:
+      {==}
+    case C.QM{} C.QN{} C.QL{}:
+      {==}
+    case C.QM{} C.QN{} C.QM{}:
+      {==}
+    case C.QM{} C.QL{} C.QN{}:
+      {==}
+    case C.QM{} C.QL{} C.QL{}:
+      {==}
+    case C.QM{} C.QL{} C.QM{}:
+      {==}
+    case C.QM{} C.QM{} C.QN{}:
+      {==}
+    case C.QM{} C.QM{} C.QL{}:
+      {==}
+    case C.QM{} C.QM{} C.QM{}:
+      {==}
+
+law q.join.assoc:
+  for a: C.Q
+  for b: C.Q
+  for c: C.Q
+  {C.q.join(C.q.join(a, b), c) == C.q.join(a, C.q.join(b, c)) : C.Q}
+
+def q.join.assoc(a, b, c):
+  match a b c:
+    case C.QN{} C.QN{} C.QN{}:
+      {==}
+    case C.QN{} C.QN{} C.QL{}:
+      {==}
+    case C.QN{} C.QN{} C.QM{}:
+      {==}
+    case C.QN{} C.QL{} C.QN{}:
+      {==}
+    case C.QN{} C.QL{} C.QL{}:
+      {==}
+    case C.QN{} C.QL{} C.QM{}:
+      {==}
+    case C.QN{} C.QM{} C.QN{}:
+      {==}
+    case C.QN{} C.QM{} C.QL{}:
+      {==}
+    case C.QN{} C.QM{} C.QM{}:
+      {==}
+    case C.QL{} C.QN{} C.QN{}:
+      {==}
+    case C.QL{} C.QN{} C.QL{}:
+      {==}
+    case C.QL{} C.QN{} C.QM{}:
+      {==}
+    case C.QL{} C.QL{} C.QN{}:
+      {==}
+    case C.QL{} C.QL{} C.QL{}:
+      {==}
+    case C.QL{} C.QL{} C.QM{}:
+      {==}
+    case C.QL{} C.QM{} C.QN{}:
+      {==}
+    case C.QL{} C.QM{} C.QL{}:
+      {==}
+    case C.QL{} C.QM{} C.QM{}:
+      {==}
+    case C.QM{} C.QN{} C.QN{}:
+      {==}
+    case C.QM{} C.QN{} C.QL{}:
+      {==}
+    case C.QM{} C.QN{} C.QM{}:
+      {==}
+    case C.QM{} C.QL{} C.QN{}:
+      {==}
+    case C.QM{} C.QL{} C.QL{}:
+      {==}
+    case C.QM{} C.QL{} C.QM{}:
+      {==}
+    case C.QM{} C.QM{} C.QN{}:
+      {==}
+    case C.QM{} C.QM{} C.QL{}:
+      {==}
+    case C.QM{} C.QM{} C.QM{}:
+      {==}
+
+law q.add.many_l:
+  for q: C.Q
+  {C.q.add(C.QM{}, q) == C.QM{} : C.Q}
+
+def q.add.many_l(q):
+  match q:
+    case C.QN{}:
+      {==}
+    case C.QL{}:
+      {==}
+    case C.QM{}:
+      {==}
+
+law q.add.many_r:
+  for q: C.Q
+  {C.q.add(q, C.QM{}) == C.QM{} : C.Q}
+
+def q.add.many_r(q):
+  match q:
+    case C.QN{}:
+      {==}
+    case C.QL{}:
+      {==}
+    case C.QM{}:
+      {==}
+
+law q.join.none_r:
+  for q: C.Q
+  {C.q.join(q, C.QN{}) == q : C.Q}
+
+def q.join.none_r(q):
+  match q:
+    case C.QN{}:
+      {==}
+    case C.QL{}:
+      {==}
+    case C.QM{}:
+      {==}
+
+law q.join.many_r:
+  for q: C.Q
+  {C.q.join(q, C.QM{}) == C.QM{} : C.Q}
+
+def q.join.many_r(q):
+  match q:
+    case C.QN{}:
+      {==}
+    case C.QL{}:
+      {==}
+    case C.QM{}:
+      {==}
+
+# join is below add: in the order - < (live) < +, q.join(a, b) never
+# exceeds q.add(a, b), so joining the two branches of a match never asks
+# more than using both
+law q.join.below_add:
+  for a: C.Q
+  for b: C.Q
+  {C.q.join(C.q.add(a, b), C.q.join(a, b)) == C.q.add(a, b) : C.Q}
+
+def q.join.below_add(a, b):
+  match a b:
+    case C.QN{} C.QN{}:
+      {==}
+    case C.QN{} C.QL{}:
+      {==}
+    case C.QN{} C.QM{}:
+      {==}
+    case C.QL{} C.QN{}:
+      {==}
+    case C.QL{} C.QL{}:
+      {==}
+    case C.QL{} C.QM{}:
+      {==}
+    case C.QM{} C.QN{}:
+      {==}
+    case C.QM{} C.QL{}:
+      {==}
+    case C.QM{} C.QM{}:
+      {==}
+
+# a demand of - is no demand, whatever the binder's quantity
+law q.dem.none_r:
+  for q: C.Q
+  {C.q.dem(q, C.QN{}) == C.QN{} : C.Q}
+
+def q.dem.none_r(q):
+  match q:
+    case C.QN{}:
+      {==}
+    case C.QL{}:
+      {==}
+    case C.QM{}:
+      {==}
+
+# demanding twice is demanding once
+law q.dem.idem:
+  for q: C.Q
+  for t: C.Q
+  {C.q.dem(C.q.dem(q, t), t) == C.q.dem(q, t) : C.Q}
+
+def q.dem.idem(q, t):
+  match q t:
+    case C.QN{} C.QN{}:
+      {==}
+    case C.QN{} C.QL{}:
+      {==}
+    case C.QN{} C.QM{}:
+      {==}
+    case C.QL{} C.QN{}:
+      {==}
+    case C.QL{} C.QL{}:
+      {==}
+    case C.QL{} C.QM{}:
+      {==}
+    case C.QM{} C.QN{}:
+      {==}
+    case C.QM{} C.QL{}:
+      {==}
+    case C.QM{} C.QM{}:
+      {==}
+
+# a sum is unused exactly when both parts are
+law q.is_none.add:
+  for a: C.Q
+  for b: C.Q
+  {C.q.is_none(C.q.add(a, b)) == Bool.and(C.q.is_none(a), C.q.is_none(b)) : Bool}
+
+def q.is_none.add(a, b):
+  match a b:
+    case C.QN{} C.QN{}:
+      {==}
+    case C.QN{} C.QL{}:
+      {==}
+    case C.QN{} C.QM{}:
+      {==}
+    case C.QL{} C.QN{}:
+      {==}
+    case C.QL{} C.QL{}:
+      {==}
+    case C.QL{} C.QM{}:
+      {==}
+    case C.QM{} C.QN{}:
+      {==}
+    case C.QM{} C.QL{}:
+      {==}
+    case C.QM{} C.QM{}:
+      {==}
+
+# each quantity is exactly one of -, live and +
+law q.is.one:
+  for q: C.Q
+  {Bool.or(C.q.is_none(q), Bool.or(C.q.is_lone(q), C.q.is_many(q))) == True{} : Bool}
+
+def q.is.one(q):
+  match q:
+    case C.QN{}:
+      {==}
+    case C.QL{}:
+      {==}
+    case C.QM{}:
+      {==}
+
+# Spans (sp.or: the first span that is one)
+# -----------------------------------------
+
+law sp.or.none_l:
+  for t: C.Sp
+  {C.sp.or(C.NoSp{}, t) == t : C.Sp}
+
+def sp.or.none_l(t):
+  {==}
+
+law sp.or.none_r:
+  for s: C.Sp
+  {C.sp.or(s, C.NoSp{}) == s : C.Sp}
+
+def sp.or.none_r(s):
+  match s:
+    case C.NoSp{}:
+      {==}
+    case C.Sp{f, b, e}:
+      {==}
+
+law sp.or.assoc:
+  for a: C.Sp
+  for b: C.Sp
+  for c: C.Sp
+  {C.sp.or(C.sp.or(a, b), c) == C.sp.or(a, C.sp.or(b, c)) : C.Sp}
+
+def sp.or.assoc(a, b, c):
+  match a:
+    case C.NoSp{}:
+      {==}
+    case C.Sp{f, x, e}:
+      {==}
+
+law sp.has.or:
+  for s: C.Sp
+  for t: C.Sp
+  {C.sp.has(C.sp.or(s, t)) == Bool.or(C.sp.has(s), C.sp.has(t)) : Bool}
+
+def sp.has.or(s, t):
+  match s:
+    case C.NoSp{}:
+      {==}
+    case C.Sp{f, b, e}:
+      {==}
+
+# Application spines (term_apply, term_unapply)
+# ---------------------------------------------
+
+# applying f to arguments keeps f's head
+law tm.head.app:
+  for xs: List<&2, C.Tm>
+  for f: C.Tm
+  for +s: C.Sp
+  {C.tm.head(C.tm.app.go(xs, f, s)) == C.tm.head(f) : C.Tm}
+
+def tm.head.app(xs, f, s):
+  match xs:
+    case Nil{}:
+      {==}
+    case Con{x, r}:
+      tm.head.app(r, C.TApp{f, x, s}, s)
+
+# splitting an applied term gives back its head and its arguments, those
+# the spine had (acc) after the ones applied
+law tm.unapp.app:
+  for xs: List<&2, C.Tm>
+  for f: C.Tm
+  for +s: C.Sp
+  for acc: List<&2, C.Tm>
+  {C.tm.unapp.go(C.tm.app.go(xs, f, s), acc) == C.tm.unapp.go(f, List.append(&2, C.Tm, xs, acc)) : C.Tm & List<&2, C.Tm>}
+
+def tm.unapp.app(xs, f, s, acc):
+  match xs:
+    case Nil{}:
+      {==}
+    case Con{x, r}:
+      tm.unapp.app(r, C.TApp{f, x, s}, s, acc)
+
+# term_unapply's head is tm.head's
+law tm.unapp.head:
+  for t: C.Tm
+  for acc: List<&2, C.Tm>
+  {Pair.fst(C.Tm, List<&2, C.Tm>, C.tm.unapp.go(t, acc)) == C.tm.head(t) : C.Tm}
+
+def tm.unapp.head(t, acc):
+  match t:
+    case C.TApp{f, x, s}:
+      tm.unapp.head(f, x <> acc)
+    case C.TVar{k, i, s}:
+      {==}
+    case C.TVr{k, i, s, r}:
+      {==}
+    case C.TRef{k, s, b}:
+      {==}
+    case C.TSub{i, v, f, s}:
+      {==}
+    case C.TLet{bs, f, s}:
+      {==}
+    case C.TTyp{g, s}:
+      {==}
+    case C.TQnt{s}:
+      {==}
+    case C.TQua{q, s}:
+      {==}
+    case C.TMin{a, b, s}:
+      {==}
+    case C.TAll{q, k, i, A, B, s}:
+      {==}
+    case C.TLam{k, i, f, s, q}:
+      {==}
+    case C.TAdt{k, x, r, s}:
+      {==}
+    case C.TCtr{k, x, s}:
+      {==}
+    case C.TNat{v, s}:
+      {==}
+    case C.TU32{v, s}:
+      {==}
+    case C.TF32{v, s}:
+      {==}
+    case C.TStr{v, s}:
+      {==}
+    case C.TMat{k, h, m, s}:
+      {==}
+    case C.TEfq{s}:
+      {==}
+    case C.TEql{a, b, T, s}:
+      {==}
+    case C.TRfl{s}:
+      {==}
+    case C.TRwt{e, p, f, s}:
+      {==}
+    case C.THol{k, s}:
+      {==}
+    case C.TAnn{x, T, s}:
+      {==}
+
+# Match flattening (Flat)
+# -----------------------
+
+# setting a pattern's quantity to its own changes nothing
+law pv.with_q.own:
+  for +p: C.Pat
+  {F.pv.with_q(p, F.pv.q(p)) == p : C.Pat}
+
+def pv.with_q.own(p):
+  match p:
+    case C.PVar{k, i, q, s}:
+      {==}
+    case C.PCtr{k, xs, s}:
+      {==}
+
+# and a variable's quantity is the one set
+law pv.q.with_q:
+  for k: String
+  for i: U32
+  for o: C.Q
+  for s: C.Sp
+  for q: C.Q
+  {F.pv.q(F.pv.with_q(C.PVar{k, i, o, s}, q)) == q : C.Q}
+
+def pv.q.with_q(k, i, o, s, q):
+  {==}
+
+# dropping each row's first column keeps every row
+law rows.tails.length:
+  for rs: List<&2, C.Row>
+  {List.length(&2, C.Row, F.rows.tails(rs)) == List.length(&2, C.Row, rs) : Nat}
+
+def rows.tails.length(rs):
+  match rs:
+    case Nil{}:
+      {==}
+    case Con{C.Row{Con{p, ps}, f}, t}:
+      %rows.tails.length(t) : {1n+List.length(&2, C.Row, F.rows.tails(t)) == 1n+_ : Nat}
+      {==}
+    case Con{C.Row{Nil{}, f}, t}:
+      %rows.tails.length(t) : {1n+List.length(&2, C.Row, F.rows.tails(t)) == 1n+_ : Nat}
+      {==}
+
+# a pattern list read back as terms has one term a pattern
+law patt.terms.length:
+  for xs: List<&2, C.Pat>
+  for +s: C.Sp
+  {List.length(&2, C.Tm, F.patt.terms(xs, s)) == List.length(&2, C.Pat, xs) : Nat}
+
+def patt.terms.length(xs, s):
+  match xs:
+    case Nil{}:
+      {==}
+    case Con{C.PVar{k, i, q, u}, t}:
+      %patt.terms.length(t, s) : {1n+List.length(&2, C.Tm, F.patt.terms(t, s)) == 1n+_ : Nat}
+      {==}
+    case Con{C.PCtr{k, ys, u}, t}:
+      %patt.terms.length(t, s) : {1n+List.length(&2, C.Tm, F.patt.terms(t, s)) == 1n+_ : Nat}
+      {==}

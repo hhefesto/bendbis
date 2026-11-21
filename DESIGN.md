@@ -201,10 +201,16 @@ get laws proven in Bend (`src/LAWS.bend` and per module), each passing
 (`bend2/bendtt.lean`: confluence, halting, consistency, adequacy), is
 ported to Bend, its terms, evaluator and checker as Bend data and defs and
 its claims as Bend theorems, in bendtt.lean's lemma order: the milestone
-after 2. Status: `src/LAWS.bend` holds 13 laws on the quantity algebra
-the checker's usage rides on (`q.add`, `q.join`, `q.dem`, `q.show`):
-they pass `bend src/LAWS.bend --verdict` (upstream at 0e2f38f7, its
-kernel BendTT built from that commit's bendtt.lean; delfos, 2026-11-21).
+after 2. Status: `src/LAWS.bend` holds 34 laws: the quantity algebra
+the checker's usage rides on (`q.add`, `q.join`, `q.dem`, `q.show` and
+the `q.is_*` predicates: units, absorption, commutativity, associativity,
+idempotence, join below add), spans (`sp.or`, `sp.has`), application
+spines (`tm.app`, `tm.unapp`, `tm.head`: splitting an applied term gives
+its head and arguments back) and Flat's pattern and row helpers (by
+induction over lists: `rows.tails` and `patt.terms` keep the length).
+All 34 pass `bend src/LAWS.bend --verdict` (upstream at 0e2f38f7, its
+kernel BendTT built from that commit's bendtt.lean; delfos, 2026-11-21,
+7 s), and bendbis's own `--check-only` gives upstream's output on it.
 
 **The devShell (the user, 2026-11-21: "Install in the devshell").**
 `flake.nix`: `nix develop` gives `bend` (upstream at the commit bendbis is
