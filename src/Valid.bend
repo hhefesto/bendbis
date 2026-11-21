@@ -178,7 +178,7 @@ def last.go(evs: List<&2, Ev>, +i: U32, m: Map<&2, U32>) -> Map<&2, U32>:
       last.go(t, (i + 1 : U32), m)
 
 def last.of(+m: Map<&2, U32>, +k: String) -> U32:
-  Pair.snd(Map<&2, U32>, U32, Map.get(U32, C.NONE(), m, k))
+  C.mp.get(U32, C.NONE(), m, k)
 
 def lhs.at(+k: String, u: Bool) -> K.Lhs:
   K.Lhs{H.HRef{k, C.NoSp{}, False{}}, 0, k, Nil{}, u, 0}
@@ -522,10 +522,10 @@ def td.refs(t: W.Td) -> List<&2, String>:
       trs(T, rs.keys(rs, Nil{}))
 
 def has(+m: Map<&2, Bool>, +k: String) -> Bool:
-  Pair.snd(Map<&2, Bool>, Bool, Map.has(&2, Bool, m, k))
+  C.mp.has(Bool, m, k)
 
 def uses.get(+m: Map<&2, List<&2, String>>, +k: String) -> List<&2, String>:
-  Pair.snd(Map<&2, List<&2, String>>, List<&2, String>, Map.get(List<&2, String>, Nil{}, m, k))
+  C.mp.get(List<&2, String>, Nil{}, m, k)
 
 def uses.add(+m: Map<&2, List<&2, String>>, +r: String, k: String) -> Map<&2, List<&2, String>>:
   Map.set(&2, List<&2, String>, m, r, k <> uses.get(m, r))

@@ -429,3 +429,50 @@ def tms.size(fuel: Nat, ts: List<&2, Tm>, +n: U32) -> U32:
 
 def tm.size(t: Tm) -> U32:
   tms.size(4294967295n, [t], 0)
+
+# Reading a map the caller keeps
+# ------------------------------
+
+# Base's Map.get answers the map too, a copy of the path it walked, which
+# a caller that keeps its own (dup'd) map only drops: mp.find walks the
+# same trie (the same cursor into the key) and answers the value alone
+def mp.leaf(-V: Data, v: V, +key: String, k: String) -> Maybe<&2, V>:
+  Bool.pick(Maybe<&2, V>, String.eq(key, k), Some{v}, None{})
+
+def mp.go(-V: Data, fuel: Nat, b: Bool, lo: Map<&2, V>, hi: Map<&2, V>, +key: String, rest: String, ci: Nat) -> Maybe<&2, V>:
+  match fuel b lo hi:
+    case 0n _ _ _:
+      None{}
+    case 1n+f False{} MLeaf{k, v} _:
+      mp.leaf(V, v, key, k)
+    case 1n+f False{} MNode{+q, x, y} _:
+      +cq = Nat.div(q, 33n)
+      +r2 = Map.get.skip(Nat.sub(cq, ci), rest)
+      mp.go(V, f, Map.get.bit(r2, Nat.mod(q, 33n)), x, y, key, r2, cq)
+    case 1n+f True{} _ MLeaf{k, v}:
+      mp.leaf(V, v, key, k)
+    case 1n+f True{} _ MNode{+q, x, y}:
+      +cq = Nat.div(q, 33n)
+      +r2 = Map.get.skip(Nat.sub(cq, ci), rest)
+      mp.go(V, f, Map.get.bit(r2, Nat.mod(q, 33n)), x, y, key, r2, cq)
+    case _ _ _ _:
+      None{}
+
+def mp.find(-V: Data, m: Map<&2, V>, +key: String) -> Maybe<&2, V>:
+  match m:
+    case MTip{}:
+      None{}
+    case MLeaf{k, v}:
+      mp.leaf(V, v, key, k)
+    case MNode{+pos, lo, hi}:
+      +cq = Nat.div(pos, 33n)
+      +rest = String.drop(key, cq)
+      mp.go(V, 4294967295n, Map.get.bit(rest, Nat.mod(pos, 33n)), lo, hi, key, rest, cq)
+
+# Map.get(V, d, m, key)'s value
+def mp.get(-V: Data, d: V, m: Map<&2, V>, +key: String) -> V:
+  Maybe.default(&2, V, mp.find(V, m, key), d)
+
+# Map.has(&2, V, m, key)'s answer
+def mp.has(-V: Data, m: Map<&2, V>, +key: String) -> Bool:
+  Maybe.is_some(&2, V, mp.find(V, m, key))

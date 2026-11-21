@@ -592,7 +592,7 @@ def K.set_td(k: String, t: W.Td) -> K(Unit):
 def K.tp.go(+k: String, st: Ks) -> KR<Map<&2, String>>:
   match st:
     case Ks{tl, ct, +tp, rs, g, fs, hols}:
-      KOk{Pair.snd(Map<&2, Map<&2, String>>, Map<&2, String>, Map.get(Map<&2, String>, Map.new(&2, String), tp, k)), Ks{tl, ct, tp, rs, g, fs, hols}}
+      KOk{C.mp.get(Map<&2, String>, Map.new(&2, String), tp, k), Ks{tl, ct, tp, rs, g, fs, hols}}
 
 # book.tmps[k] (empty when k has none yet)
 def K.tp(k: String) -> K(Map<&2, String>):
@@ -869,10 +869,10 @@ def cr.names(cs: List<&2, W.Cr>) -> String:
       S.name.key(j) ++ ", " ++ cr.names(t)
 
 def ct.has(m: Map<&2, W.Cr>, +k: String) -> Bool:
-  Pair.snd(Map<&2, W.Cr>, Bool, Map.has(&2, W.Cr, m, k))
+  C.mp.has(W.Cr, m, k)
 
 def ct.get(m: Map<&2, W.Cr>, +k: String) -> W.Cr:
-  Pair.snd(Map<&2, W.Cr>, W.Cr, Map.get(W.Cr, W.Cr{"", 0, H.HEfq{C.NoSp{}}, ""}, m, k))
+  C.mp.get(W.Cr, W.Cr{"", 0, H.HEfq{C.NoSp{}}, ""}, m, k)
 
 # Terms read off a computed value
 # -------------------------------
@@ -1823,12 +1823,16 @@ def ck.go(+fuel: Nat, j: KJ) -> K(KV):
         case H.HEfq{+s}:
           ck.go(p, JMat{H.HEfq{s}, s, lhs, qt, ty, g, ctx, d})
         # check-rfl
+        # (the goal's whnf and the comparison in one store of share cells:
+        # its lets' cells are the ones the comparison links; they reach
+        # no other evaluation, only the error, which reads them raw)
         case H.HRfl{+s}:
           do K<KV>:
             +w : W.W <- K.w()
-            +tw : H.H = W.wnf(w, ty)
+            +r : W.Cx = W.wnf.c(w, W.cm.new(), ty)
+            +tw : H.H = W.cx.h(r)
             K.if(KV, h.is_eql(tw),
-              st => K.if(KV, W.compare(True{}, w, h.eql.a(tw), h.eql.b(tw), d),
+              st => K.if(KV, W.compare.cm(True{}, w, W.cx.cm(r), h.eql.a(tw), h.eql.b(tw), d),
                 st2 => (do K<KV>:
                   K.ref(ty)
                   return VU{UsTip{}, EsNo{}})(st2),
@@ -2009,7 +2013,7 @@ def ck.go(+fuel: Nat, j: KJ) -> K(KV):
             K.err(KV, ctx, ExS{"a ~ argument that stops growing"}, Some{ExH{H.HRef{k, s, b}}}, s, Some{lhs.dn(lhs)}, None{}, 0),
             st2 => (do K<KV>:
               +tp : Map<&2, String> <- K.tp(k)
-              +o : String = Pair.snd(Map<&2, String>, String, Map.get(String, "", tp, key))
+              +o : String = C.mp.get(String, "", tp, key)
               K.if(KV, String.is_empty(o),
                 st3 => (do K<KV>:
                   K.nop()

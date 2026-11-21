@@ -213,6 +213,8 @@ def h.is_cell(h: H) -> Bool:
   match h:
     case HVar{k, i, s}:
       U32.is_eq(i, C.MINUS())
+    case HVal{k, +i, s, v}:
+      U32.is_ge(i, 2147483648)
     case _:
       False{}
 

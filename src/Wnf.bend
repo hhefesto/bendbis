@@ -34,7 +34,7 @@ type Td is Data:
   TdDef{n: U32, x: U32, T: H.H, v: Maybe<&2, H.H>, b: Bool, u: Bool, ffi: Bool, l: Bool, rs: Maybe<&2, Map<&2, Bool>>}
 
 def td.get(m: Map<&2, Td>, +k: String) -> Td:
-  Pair.snd(Map<&2, Td>, Td, Map.get(Td, TdNo{}, m, k))
+  C.mp.get(Td, TdNo{}, m, k)
 
 # the evaluator's view: the defs it unfolds (none for term_compare's rigid
 # pass), and the book a check-mat goal reads its fields' types in
@@ -170,11 +170,310 @@ def lt.mat(t: Lt) -> H.H:
     case LtExt{t, k, n}:
       lhs_ext(lt.mat(t), k, n)
 
+# the Ann a cell's value restores when filled (bend.ts's VAR frame's a)
+type Va is Data:
+  VaNo{}
+  VaYes{T: H.H, s: C.Sp}
+
+def va.of(h: H.H) -> Va:
+  match h:
+    case H.HAnn{x, A, s}:
+      VaYes{A, s}
+    case _:
+      VaNo{}
+
 type Fr is Data:
   FApp{x: H.H, s: C.Sp}
   FMat{t: H.H, e: H.H, lhs: Lh, s: C.Sp}
   FMna{b: H.H, s: C.Sp}
   FMnb{a: H.H, s: C.Sp}
+  FVar{n: U32, a: Va}
+  FRwt{t: H.H, lhs: Lh}
+
+# Share cells
+# -----------
+
+# bend.ts's machine shares every argument, let value and demanded field in
+# a cell: a Var whose value it overwrites with the value's whnf, so work
+# shared is done once; its comparison links two cells it found equal, so a
+# shared graph is compared once. bendbis's cell is an HVal whose index is
+# 2^31 plus its number in a store (Cm), and whose own v is the raw term:
+# anywhere the store is not (term_lower, h.force, a run without cells) it
+# reads as that raw term, as bend.ts's term_force reads a cell. A store is
+# made by one term_compare and dropped when it answers, and no other call
+# makes cells, so no cell reaches the checker's terms.
+
+# a filled cell: its whnf, and its class's link (its own number at a root)
+type Ce is Data:
+  CeNo{}
+  CeV{v: H.H, c: U32}
+
+# the store's entries, a trie keyed as High's Em
+type Ct is Data:
+  CtTip{}
+  CtBin{e: Ce, l: Ct, r: Ct}
+
+# a store: whether the machine makes cells, the next number, the entries
+type Cm is Data:
+  Cm{on: Bool, n: U32, t: Ct}
+
+def CELL() -> U32:
+  2147483648
+
+# a store that makes no cells (term_wnf as the checker calls it)
+def cm.off() -> Cm:
+  Cm{False{}, 0, CtTip{}}
+
+def cm.new() -> Cm:
+  Cm{True{}, 0, CtTip{}}
+
+def ct.get.go(fuel: Nat, t: Ct, side: Nat, +k: U32) -> Ce:
+  match fuel t:
+    case 0n _:
+      CeNo{}
+    case _ CtTip{}:
+      CeNo{}
+    case 1n+f CtBin{e, l, r}:
+      match side:
+        case 0n:
+          e
+        case 1n:
+          +j = H.em.down(k, 1n)
+          ct.get.go(f, l, H.em.side(j), j)
+        case _:
+          +j = H.em.down(k, 2n)
+          ct.get.go(f, r, H.em.side(j), j)
+
+def ct.get(t: Ct, +k: U32) -> Ce:
+  ct.get.go(H.em.fuel(), t, H.em.side(k), k)
+
+def ct.set.go(fuel: Nat, t: Ct, side: Nat, +k: U32, x: Ce) -> Ct:
+  match fuel t:
+    case 0n t:
+      t
+    case 1n+f CtTip{}:
+      match side:
+        case 0n:
+          CtBin{x, CtTip{}, CtTip{}}
+        case 1n:
+          +j = H.em.down(k, 1n)
+          CtBin{CeNo{}, ct.set.go(f, CtTip{}, H.em.side(j), j, x), CtTip{}}
+        case _:
+          +j = H.em.down(k, 2n)
+          CtBin{CeNo{}, CtTip{}, ct.set.go(f, CtTip{}, H.em.side(j), j, x)}
+    case 1n+f CtBin{e, l, r}:
+      match side:
+        case 0n:
+          CtBin{x, l, r}
+        case 1n:
+          +j = H.em.down(k, 1n)
+          CtBin{e, ct.set.go(f, l, H.em.side(j), j, x), r}
+        case _:
+          +j = H.em.down(k, 2n)
+          CtBin{e, l, ct.set.go(f, r, H.em.side(j), j, x)}
+
+def ct.set(t: Ct, +k: U32, x: Ce) -> Ct:
+  ct.set.go(H.em.fuel(), t, H.em.side(k), k, x)
+
+def is.cell(+i: U32) -> Bool:
+  U32.is_ge(i, CELL())
+
+def h.is.cell(h: H.H) -> Bool:
+  match h:
+    case H.HVal{k, +i, s, v}:
+      is.cell(i)
+    case _:
+      False{}
+
+# a term and the store after making it
+type Cx is Data:
+  Cx{h: H.H, cm: Cm}
+
+type Cxs is Data:
+  Cxs{hs: List<&2, H.H>, cm: Cm}
+
+def cx.h(r: Cx) -> H.H:
+  match r:
+    case Cx{h, cm}:
+      h
+
+def cx.cm(r: Cx) -> Cm:
+  match r:
+    case Cx{h, cm}:
+      cm
+
+# x in cell n, unless x is a cell already or z (cells off)
+def cell.of(+z: Bool, +n: U32, +x: H.H, +k: String) -> H.H:
+  Bool.pick(H.H, z, x, H.HVal{k, (CELL() + n : U32), H.h.s(x), x})
+
+def cell.next(+z: Bool, +n: U32) -> U32:
+  Bool.pick(U32, z, n, (n + 1 : U32))
+
+# term_cell(x, k): x in a new cell, unless x is one (or the store makes none)
+def cell(cm: Cm, +x: H.H, +k: String) -> Cx:
+  match cm:
+    case Cm{+on, +n, t}:
+      +z = Bool.or(Bool.not(on), h.is.cell(x))
+      Cx{cell.of(z, n, x, k), Cm{on, cell.next(z, n), t}}
+
+# each of xs in a cell (a let's values named by its binders, in ks)
+def cells.go(xs: List<&2, H.H>, +on: Bool, +n: U32, t: Ct, +ks: List<&2, String>, acc: List<&2, H.H>) -> Cxs:
+  match xs:
+    case Nil{}:
+      Cxs{List.reverse(&2, H.H, acc), Cm{on, n, t}}
+    case Con{+x, r}:
+      +z = Bool.or(Bool.not(on), h.is.cell(x))
+      +k = Maybe.default(&2, String, List.head(&2, String, ks), "_")
+      cells.go(r, on, cell.next(z, n), t, List.tail(&2, String, ks), cell.of(z, n, x, k) <> acc)
+
+def cells(cm: Cm, xs: List<&2, H.H>) -> Cxs:
+  match cm:
+    case Cm{on, n, t}:
+      cells.go(xs, on, n, t, Nil{}, Nil{})
+
+def hb.vals(bs: List<&2, H.HB>) -> List<&2, H.H>:
+  match bs:
+    case Nil{}:
+      Nil{}
+    case Con{H.HB{k, i, q, v}, t}:
+      v <> hb.vals(t)
+
+def hb.ks(bs: List<&2, H.HB>) -> List<&2, String>:
+  match bs:
+    case Nil{}:
+      Nil{}
+    case Con{H.HB{k, i, q, v}, t}:
+      k <> hb.ks(t)
+
+def cells.let(cm: Cm, +bs: List<&2, H.HB>) -> Cxs:
+  match cm:
+    case Cm{on, n, t}:
+      cells.go(hb.vals(bs), on, n, t, hb.ks(bs), Nil{})
+
+# a cell's root: the end of its class's links
+def cm.root.go(fuel: Nat, t: Ct, e: Ce, +k: U32) -> U32:
+  match fuel e:
+    case 0n _:
+      k
+    case 1n+f CeV{v, +c}:
+      +u = t
+      cm.root.go(f, u, Bool.pick(Ce, U32.is_eq(c, k), CeNo{}, ct.get(u, c)), c)
+    case _ CeNo{}:
+      k
+
+def cm.root(+t: Ct, +k: U32) -> U32:
+  cm.root.go(4294967295n, t, ct.get(t, k), k)
+
+# a cell's whnf as its own (the store's, once filled); the frame the
+# machine pushes to fill it, if not yet
+type Rd is Data:
+  Rd{v: H.H, fs: List<&2, Fr>, cm: Cm}
+
+def cell.read.e(e: Ce, cm: Cm, +j: U32, v: H.H) -> Rd:
+  match e:
+    case CeV{fv, c}:
+      Rd{fv, Nil{}, cm}
+    case CeNo{}:
+      +u = v
+      Rd{u, [FVar{j, va.of(u)}], cm}
+
+def cell.read.at(z: Bool, cm: Cm, +i: U32, v: H.H) -> Rd:
+  match z cm:
+    case False{} cm:
+      Rd{v, Nil{}, cm}
+    case True{} Cm{on, n, +t}:
+      +j = (i - CELL() : U32)
+      cell.read.e(ct.get(t, j), Cm{on, n, t}, j, v)
+
+# reading HVal{_, i, _, v}: a let's value (v), or cell i of the store
+def cell.read(cm: Cm, +i: U32, v: H.H) -> Rd:
+  match cm:
+    case Cm{+on, n, t}:
+      cell.read.at(Bool.and(on, is.cell(i)), Cm{on, n, t}, i, v)
+
+# the VAR frame's fill: the whnf's parts in cells (tree nodes inside a leaf
+# stay plain), then cell j holds it (with the Ann its raw value had)
+def pt.ctr(r: Cxs, k: String, s: C.Sp) -> Cx:
+  match r:
+    case Cxs{ys, c2}:
+      Cx{H.HCtr{k, ys, s}, c2}
+
+def pt.adt(r: Cxs, k: String, rs: List<&2, String>, s: C.Sp) -> Cx:
+  match r:
+    case Cxs{ys, c2}:
+      Cx{H.HAdt{k, ys, rs, s}, c2}
+
+def pt.all(r: Cx, q: C.Q, k: String, i: U32, cl: H.Cl, s: C.Sp) -> Cx:
+  match r:
+    case Cx{B, c2}:
+      Cx{H.HAll{q, k, i, B, cl, s}, c2}
+
+def pt.typ(r: Cx, s: C.Sp) -> Cx:
+  match r:
+    case Cx{g, c2}:
+      Cx{H.HTyp{g, s}, c2}
+
+def pt.mat(r: Cxs, k: String, s: C.Sp) -> Cx:
+  match r:
+    case Cxs{Con{h, Con{m, Nil{}}}, c2}:
+      Cx{H.HMat{k, h, m, s}, c2}
+    case Cxs{ys, c2}:
+      Cx{H.HHol{"bendbis: unreachable (two cells)", s}, c2}
+
+def pt.min(r: Cxs, s: C.Sp) -> Cx:
+  match r:
+    case Cxs{Con{a, Con{b, Nil{}}}, c2}:
+      Cx{H.HMin{a, b, s}, c2}
+    case Cxs{ys, c2}:
+      Cx{H.HHol{"bendbis: unreachable (two cells)", s}, c2}
+
+def pt.eql(r: Cxs, s: C.Sp) -> Cx:
+  match r:
+    case Cxs{Con{a, Con{b, Con{T, Nil{}}}}, c2}:
+      Cx{H.HEql{a, b, T, s}, c2}
+    case Cxs{ys, c2}:
+      Cx{H.HHol{"bendbis: unreachable (three cells)", s}, c2}
+
+def cell.parts(cm: Cm, tm: H.H) -> Cx:
+  match tm:
+    case H.HCtr{k, xs, s}:
+      pt.ctr(cells(cm, xs), k, s)
+    case H.HAdt{k, xs, r, s}:
+      pt.adt(cells(cm, xs), k, r, s)
+    case H.HAll{q, k, i, A, cl, s}:
+      pt.all(cell(cm, A, "_"), q, k, i, cl, s)
+    case H.HMat{k, h, m, s}:
+      pt.mat(cells(cm, [h, m]), k, s)
+    case H.HEql{a, b, T, s}:
+      pt.eql(cells(cm, [a, b, T]), s)
+    case H.HMin{a, b, s}:
+      pt.min(cells(cm, [a, b]), s)
+    case H.HTyp{g, s}:
+      pt.typ(cell(cm, g, "_"), s)
+    case tm:
+      Cx{tm, cm}
+
+def cell.put(cm: Cm, +j: U32, v: H.H) -> Cm:
+  match cm:
+    case Cm{on, n, t}:
+      Cm{on, n, ct.set(t, j, CeV{v, j})}
+
+def fill.ann(r: Cx, +j: U32, +t2: H.H, s: C.Sp) -> Cx:
+  match r:
+    case Cx{T2, c3}:
+      Cx{t2, cell.put(c3, j, H.HAnn{t2, T2, s})}
+
+def fill.at(r: Cx, +j: U32, a: Va) -> Cx:
+  match r:
+    case Cx{+t2, c2}:
+      match a:
+        case VaNo{}:
+          Cx{t2, cell.put(c2, j, t2)}
+        case VaYes{T, s}:
+          fill.ann(cell(c2, T, "_"), j, t2, s)
+
+def cell.fill(cm: Cm, +j: U32, a: Va, tm: H.H) -> Cx:
+  fill.at(cell.parts(cm, tm), j, a)
 
 # the APP frames on top, up to n
 def run.count(n: Nat, frs: List<&2, Fr>, run: Nat) -> Nat:
@@ -185,13 +484,6 @@ def run.count(n: Nat, frs: List<&2, Fr>, run: Nat) -> Nat:
       run.count(m, t, 1n+run)
     case _ _:
       run
-
-def hb.vals(bs: List<&2, H.HB>) -> List<&2, H.H>:
-  match bs:
-    case Nil{}:
-      Nil{}
-    case Con{H.HB{k, i, q, v}, t}:
-      v <> hb.vals(t)
 
 def lh.step(lhs: Lh, x: H.H, s: C.Sp) -> Lh:
   match lhs:
@@ -303,112 +595,149 @@ type Md is Data:
   MdBack{}
   MdRef{td: Td}
   MdRun{ok: Bool, v: H.H, n: U32}
-  MdRwt{ev: H.H}
   MdMna{mv: Mv, b: H.H, s: C.Sp}
   MdMat{t: H.H, e: H.H, fl: Lh, s: C.Sp}
   MdArm{arm: Arm, t: H.H, e: H.H, fl: Lh, s: C.Sp}
+  MdRd{rd: Rd}
+  MdLet{r: Cxs, cl: H.Cl}
+  MdApp{r: Cx, s: C.Sp}
+  MdFill{r: Cx}
+  MdHit{r: Cxs}
+  MdRwt{t: H.H, fl: Lh}
 
 def w.bk(w: W) -> Map<&2, Td>:
   match w:
     case W{bk, real}:
       bk
 
-def wnf.go(+fuel: Nat, +w: W, md: Md, tm: H.H, +frs: List<&2, Fr>, lhs: Lh) -> H.H:
+# the machine, as bend.ts's term_wnf: a cell met unfilled is read with a
+# FVar frame under it, which fills the cell once its value is a whnf; a
+# rewrite's evidence runs above a FRwt frame (bend.ts runs it as its own
+# term_wnf: the frame keeps the frames below out of its reach)
+def wnf.go(+fuel: Nat, +w: W, cm: Cm, md: Md, tm: H.H, +frs: List<&2, Fr>, lhs: Lh) -> Cx:
   match fuel md:
     case 0n _:
-      H.HHol{"bendbis: term_wnf ran out of fuel", C.NoSp{}}
+      Cx{H.HHol{"bendbis: term_wnf ran out of fuel", C.NoSp{}}, cm}
     case 1n+p MdMain{}:
       match tm:
-        case H.HVal{k, i, s, v}:
-          wnf.go(p, w, MdMain{}, v, frs, LhNo{})
+        case H.HVal{k, +i, s, v}:
+          wnf.go(p, w, cm.off(), MdRd{cell.read(cm, i, v)}, H.HQnt{s}, frs, lhs)
         case H.HAnn{x, A, s}:
-          wnf.go(p, w, MdMain{}, x, frs, lhs)
+          wnf.go(p, w, cm, MdMain{}, x, frs, lhs)
         case H.HMin{a, b, s}:
-          wnf.go(p, w, MdMain{}, a, FMna{b, s} <> frs, lhs)
+          wnf.go(p, w, cm, MdMain{}, a, FMna{b, s} <> frs, lhs)
         case H.HLet{bs, cl, s}:
-          wnf.go(p, w, MdMain{}, apL(cl, hb.vals(bs)), frs, lhs)
+          wnf.go(p, w, cm.off(), MdLet{cells.let(cm, bs), cl}, H.HQnt{s}, frs, lhs)
         case H.HApp{f, x, s}:
-          wnf.go(p, w, MdMain{}, f, FApp{x, s} <> frs, LhNo{})
+          wnf.go(p, w, cm.off(), MdApp{cell(cm, x, "_"), s}, f, frs, lhs)
         case H.HLam{k, i, cl, s, q}:
           match frs:
             case Con{FApp{+x, u}, r}:
-              wnf.go(p, w, MdMain{}, ap0(cl, x), r, lh.step(lhs, x, u))
+              wnf.go(p, w, cm, MdMain{}, ap0(cl, x), r, lh.step(lhs, x, u))
             case frs:
-              wnf.go(p, w, MdBack{}, H.HLam{k, i, cl, s, q}, frs, LhNo{})
+              wnf.go(p, w, cm, MdBack{}, H.HLam{k, i, cl, s, q}, frs, LhNo{})
         case H.HMat{k, h, m, s}:
           match frs:
             case Con{FApp{+x, u}, r}:
-              wnf.go(p, w, MdMain{}, x, FMat{H.HMat{k, h, m, s}, x, lhs, u} <> r, LhNo{})
+              wnf.go(p, w, cm, MdMain{}, x, FMat{H.HMat{k, h, m, s}, x, lhs, u} <> r, LhNo{})
             case frs:
-              wnf.go(p, w, MdBack{}, H.HMat{k, h, m, s}, frs, LhNo{})
+              wnf.go(p, w, cm, MdBack{}, H.HMat{k, h, m, s}, frs, LhNo{})
         case H.HEfq{s}:
-          wnf.go(p, w, MdBack{}, Maybe.default(&2, H.H, efq.lhs(lhs, frs), H.HEfq{s}), frs, LhNo{})
+          wnf.go(p, w, cm, MdBack{}, Maybe.default(&2, H.H, efq.lhs(lhs, frs), H.HEfq{s}), frs, LhNo{})
         case H.HRwt{+e, m, f, s}:
-          wnf.go(p, w, MdRwt{wnf.go(p, w, MdMain{}, e, Nil{}, LhNo{})}, H.HRwt{e, m, f, s}, frs, lhs)
+          wnf.go(p, w, cm, MdMain{}, e, FRwt{H.HRwt{e, m, f, s}, lhs} <> frs, LhNo{})
         case H.HRef{+k, s, b}:
-          wnf.go(p, w, MdRef{td.get(w.bk(w), k)}, H.HRef{k, s, b}, frs, lhs)
+          wnf.go(p, w, cm, MdRef{td.get(w.bk(w), k)}, H.HRef{k, s, b}, frs, lhs)
         case tm:
-          wnf.go(p, w, MdBack{}, tm, frs, LhNo{})
-    case 1n+p MdRwt{ev}:
-      match ev tm:
-        case H.HRfl{u} H.HRwt{e, m, f, s}:
-          wnf.go(p, w, MdMain{}, f, frs, lhs)
-        case _ tm:
-          wnf.go(p, w, MdBack{}, tm, frs, LhNo{})
+          wnf.go(p, w, cm, MdBack{}, tm, frs, LhNo{})
+    case 1n+p MdRd{rd}:
+      match rd:
+        case Rd{v2, fs, cm2}:
+          wnf.go(p, w, cm2, MdMain{}, v2, List.append(&2, Fr, fs, frs), LhNo{})
+    case 1n+p MdLet{r, cl}:
+      match r:
+        case Cxs{vs, cm2}:
+          wnf.go(p, w, cm2, MdMain{}, apL(cl, vs), frs, lhs)
+    case 1n+p MdApp{r, s}:
+      match r:
+        case Cx{y, cm2}:
+          wnf.go(p, w, cm2, MdMain{}, tm, FApp{y, s} <> frs, LhNo{})
+    case 1n+p MdFill{r}:
+      match r:
+        case Cx{t2, cm2}:
+          wnf.go(p, w, cm2, MdMain{}, t2, frs, LhNo{})
+    case 1n+p MdHit{r}:
+      match r:
+        case Cxs{ys, cm2}:
+          wnf.go(p, w, cm2, MdMain{}, tm, fields.frames(ys, frs), lhs)
     case 1n+p MdRef{td}:
       match td tm:
         case TdAdt{+n, g, T, c, ab} H.HRef{+k, +s, b}:
-          wnf.go(p, w, MdBack{}, Bool.pick(H.H, U32.is_eq(n, 0), H.HAdt{k, Nil{}, Nil{}, s}, H.HRef{k, s, b}), frs, LhNo{})
+          wnf.go(p, w, cm, MdBack{}, Bool.pick(H.H, U32.is_eq(n, 0), H.HAdt{k, Nil{}, Nil{}, s}, H.HRef{k, s, b}), frs, LhNo{})
         case TdDef{+n, x, T, Some{v}, db, u, ffi, l, rs} tm:
           +m = U32.to_nat(n)
-          wnf.go(p, w, MdRun{Nat.is_eq(run.count(m, frs, 0n), m), v, n}, tm, frs, lhs)
+          wnf.go(p, w, cm, MdRun{Nat.is_eq(run.count(m, frs, 0n), m), v, n}, tm, frs, lhs)
         case _ tm:
-          wnf.go(p, w, MdBack{}, tm, frs, LhNo{})
+          wnf.go(p, w, cm, MdBack{}, tm, frs, LhNo{})
     case 1n+p MdRun{ok, v, n}:
       match ok:
         case True{}:
-          wnf.go(p, w, MdMain{}, v, frs, LhYes{LtRef{tm}, n})
+          wnf.go(p, w, cm, MdMain{}, v, frs, LhYes{LtRef{tm}, n})
         case False{}:
-          wnf.go(p, w, MdBack{}, tm, frs, LhNo{})
+          wnf.go(p, w, cm, MdBack{}, tm, frs, LhNo{})
     case 1n+p MdBack{}:
       match frs:
         case Nil{}:
-          tm
+          Cx{tm, cm}
         case Con{FApp{x, s}, r}:
-          wnf.go(p, w, MdBack{}, ap(tm, x, s), r, LhNo{})
+          wnf.go(p, w, cm, MdBack{}, ap(tm, x, s), r, LhNo{})
         case Con{FMna{b, s}, r}:
           +t = tm
-          wnf.go(p, w, MdMna{mna.kind(t), b, s}, t, r, LhNo{})
+          wnf.go(p, w, cm, MdMna{mna.kind(t), b, s}, t, r, LhNo{})
         case Con{FMnb{a, s}, r}:
-          wnf.go(p, w, MdBack{}, min.back(tm, a, s), r, LhNo{})
+          wnf.go(p, w, cm, MdBack{}, min.back(tm, a, s), r, LhNo{})
         case Con{FMat{t, e, fl, s}, r}:
-          wnf.go(p, w, MdMat{t, e, fl, s}, lit_step(tm), r, LhNo{})
+          wnf.go(p, w, cm, MdMat{t, e, fl, s}, lit_step(tm), r, LhNo{})
+        case Con{FVar{n, a}, r}:
+          wnf.go(p, w, cm.off(), MdFill{cell.fill(cm, n, a, tm)}, H.HQnt{C.NoSp{}}, r, LhNo{})
+        case Con{FRwt{t, fl}, r}:
+          wnf.go(p, w, cm, MdRwt{t, fl}, tm, r, LhNo{})
+    case 1n+p MdRwt{t, fl}:
+      match t tm:
+        case H.HRwt{e, m, f, s} H.HRfl{u}:
+          wnf.go(p, w, cm, MdMain{}, f, frs, fl)
+        case t _:
+          wnf.go(p, w, cm, MdBack{}, t, frs, LhNo{})
     case 1n+p MdMna{mv, b, s}:
       match mv:
         case MvMany{}:
-          wnf.go(p, w, MdMain{}, b, frs, LhNo{})
+          wnf.go(p, w, cm, MdMain{}, b, frs, LhNo{})
         case MvNone{}:
-          wnf.go(p, w, MdBack{}, tm, frs, LhNo{})
+          wnf.go(p, w, cm, MdBack{}, tm, frs, LhNo{})
         case MvOther{}:
-          wnf.go(p, w, MdMain{}, b, FMnb{tm, s} <> frs, LhNo{})
+          wnf.go(p, w, cm, MdMain{}, b, FMnb{tm, s} <> frs, LhNo{})
     case 1n+p MdMat{+t, e, fl, s}:
       match tm:
         case H.HCtr{+k, xs, cs}:
-          wnf.go(p, w, MdArm{arm.find(t, k), t, e, fl, s}, H.HCtr{k, xs, cs}, frs, LhNo{})
+          wnf.go(p, w, cm, MdArm{arm.find(t, k), t, e, fl, s}, H.HCtr{k, xs, cs}, frs, LhNo{})
         case tm:
-          wnf.go(p, w, MdBack{}, ap(lh.t(fl, t), e, s), frs, LhNo{})
+          wnf.go(p, w, cm, MdBack{}, ap(lh.t(fl, t), e, s), frs, LhNo{})
     case 1n+p MdArm{arm, t, e, fl, s}:
       match arm tm:
         case ArmHit{h} H.HCtr{+k, +xs, cs}:
-          wnf.go(p, w, MdMain{}, h, fields.frames(xs, frs), lh.ext(fl, k, U32.from_nat(List.length(&2, H.H, xs))))
+          wnf.go(p, w, cm.off(), MdHit{cells(cm, xs)}, h, frs, lh.ext(fl, k, U32.from_nat(List.length(&2, H.H, xs))))
         case ArmDef{d} tm:
-          wnf.go(p, w, MdMain{}, d, FApp{tm, C.NoSp{}} <> frs, fl)
+          wnf.go(p, w, cm, MdMain{}, d, FApp{tm, C.NoSp{}} <> frs, fl)
         case _ tm:
-          wnf.go(p, w, MdBack{}, ap(lh.t(fl, t), e, s), frs, LhNo{})
+          wnf.go(p, w, cm, MdBack{}, ap(lh.t(fl, t), e, s), frs, LhNo{})
 
-# term_wnf: weak head normal form
+# term_wnf: weak head normal form (no cells: the checker's own calls)
 def wnf(+w: W, tm: H.H) -> H.H:
-  wnf.go(FUEL(), w, MdMain{}, tm, Nil{}, LhNo{})
+  cx.h(wnf.go(FUEL(), w, cm.off(), MdMain{}, tm, Nil{}, LhNo{}))
+
+# term_wnf inside a comparison: its store's cells shared
+def wnf.c(+w: W, cm: Cm, tm: H.H) -> Cx:
+  wnf.go(FUEL(), w, cm, MdMain{}, tm, Nil{}, LhNo{})
 
 # Opening any binder (a check-mat goal reads its fields' types in the book)
 # -------------------------------------------------------------------------
@@ -566,6 +895,8 @@ def snfl(+w: W, h: H.H, d: U32) -> C.Tm:
 type Cp is Data:
   CpT{eq: Bool, a: H.H, b: H.H, d: U32}
   CpB{eq: Bool, a: H.Cl, b: H.Cl, k: String, d: U32}
+  CpW{eq: Bool, a: H.H, b: H.H, d: U32}
+  CpLink{a: U32, b: U32}
 
 # what one comparison asks next: nothing (true or false), all of ps, or
 # either list (bend.ts's ||)
@@ -785,69 +1116,176 @@ def same.ref(a: H.H, b: H.H) -> Bool:
     case _ _:
       False{}
 
-def cmp.pre(z: Bool, +eq: Bool, +w: W, l: H.H, r: H.H, +d: U32) -> Cs:
-  match z:
-    case True{}:
-      CsTrue{}
-    case False{}:
-      cmp.whnf(eq, w, wnf(w, l), wnf(w, r), d)
+# a comparison's next ask, and the store after it
+type Cq is Data:
+  Cq{cs: Cs, cm: Cm}
 
-def cmp.step(+w: W, c: Cp) -> Cs:
+def cell.n(h: H.H) -> U32:
+  match h:
+    case H.HVal{k, i, s, v}:
+      (i - CELL() : U32)
+    case _:
+      0
+
+def cs.is.true(c: Cs) -> Bool:
   match c:
-    case CpT{eq, +l, +r, d}:
-      cmp.pre(same.ref(l, r), eq, w, l, r, d)
-    case CpB{eq, a, b, +k, +d}:
-      +x : H.H = H.HVar{k, d, C.NoSp{}}
-      CsAll{[CpT{eq, apc(w.real(w), a, x), apc(w.real(w), b, x), (d + 1 : U32)}]}
+    case CsTrue{}:
+      True{}
+    case _:
+      False{}
 
-def cmp.or2(z: Bool, rest: Unit -> Bool) -> Bool:
+# compare_go after the whnfs: two cells compared EQ are linked into one
+# class once their values compare equal (the CpLink after their pair)
+def cmp.link(z: Bool, +eq: Bool, +w: W, cm: Cm, l: H.H, r: H.H, +a: H.H, +b: H.H, +d: U32) -> Cq:
   match z:
     case True{}:
-      rest(Unit{})
+      Cq{CsAll{[CpW{eq, a, b, d}, CpLink{cell.n(l), cell.n(r)}]}, cm}
+    case False{}:
+      Cq{cmp.whnf(eq, w, a, b, d), cm}
+
+def cmp.cells.b(rb: Cx, +eq: Bool, +w: W, +l: H.H, +r: H.H, +a: H.H, +d: U32) -> Cq:
+  match rb:
+    case Cx{b, c3}:
+      cmp.link(Bool.and(eq, Bool.and(h.is.cell(l), h.is.cell(r))), eq, w, c3, l, r, a, b, d)
+
+def cmp.cells.a(ra: Cx, +eq: Bool, +w: W, +l: H.H, +r: H.H, +d: U32) -> Cq:
+  match ra:
+    case Cx{a, c2}:
+      cmp.cells.b(wnf.c(w, c2, r), eq, w, l, r, a, d)
+
+# both whnfs, each filling its cell (unless z: equal already)
+def cmp.cells(z: Bool, +eq: Bool, +w: W, cm: Cm, +l: H.H, +r: H.H, +d: U32) -> Cq:
+  match z:
+    case True{}:
+      Cq{CsTrue{}, cm}
+    case False{}:
+      cmp.cells.a(wnf.c(w, cm, l), eq, w, l, r, d)
+
+# compare_go's start: one cell, or two of one class (found equal before);
+# the roots are looked up only for two cells
+def cells.same.at(z: Bool, +t: Ct, +l: H.H, +r: H.H) -> Bool:
+  match z:
+    case True{}:
+      U32.is_eq(cm.root(t, cell.n(l)), cm.root(t, cell.n(r)))
     case False{}:
       False{}
 
-def cmp.or(z: Bool, alt: Unit -> Bool, rest: Unit -> Bool) -> Bool:
-  match z:
-    case True{}:
-      rest(Unit{})
-    case False{}:
-      cmp.or2(alt(Unit{}), rest)
+def cells.same(cm: Cm, +l: H.H, +r: H.H) -> Cq:
+  match cm:
+    case Cm{on, n, +t}:
+      Cq{cs.bool(cells.same.at(Bool.and(h.is.cell(l), h.is.cell(r)), t, l, r)), Cm{on, n, t}}
+
+def cmp.pre.at(sm: Cq, +eq: Bool, +w: W, +l: H.H, +r: H.H, +d: U32) -> Cq:
+  match sm:
+    case Cq{c, c2}:
+      cmp.cells(Bool.or(same.ref(l, r), cs.is.true(c)), eq, w, c2, l, r, d)
+
+def cmp.pre(+eq: Bool, +w: W, cm: Cm, +l: H.H, +r: H.H, +d: U32) -> Cq:
+  cmp.pre.at(cells.same(cm, l, r), eq, w, l, r, d)
+
+# bend.ts's r.c = l: the second class under the first
+def cm.link.e(e: Ce, t: Ct, +rb: U32, +ra: U32) -> Ct:
+  match e:
+    case CeV{v, c}:
+      ct.set(t, rb, CeV{v, ra})
+    case CeNo{}:
+      t
+
+def cm.link.at(z: Bool, cm: Cm, +ra: U32, +rb: U32) -> Cm:
+  match z cm:
+    case True{} cm:
+      cm
+    case False{} Cm{on, n, +t}:
+      Cm{on, n, cm.link.e(ct.get(t, rb), t, rb, ra)}
+
+def cm.link(cm: Cm, +a: U32, +b: U32) -> Cm:
+  match cm:
+    case Cm{on, n, +t}:
+      +ra = cm.root(t, a)
+      +rb = cm.root(t, b)
+      cm.link.at(U32.is_eq(ra, rb), Cm{on, n, t}, ra, rb)
+
+def cmp.step(+w: W, cm: Cm, c: Cp) -> Cq:
+  match c:
+    case CpT{eq, l, r, d}:
+      cmp.pre(eq, w, cm, l, r, d)
+    case CpW{eq, a, b, d}:
+      Cq{cmp.whnf(eq, w, a, b, d), cm}
+    case CpLink{a, b}:
+      Cq{CsTrue{}, cm.link(cm, a, b)}
+    case CpB{eq, a, b, +k, +d}:
+      +x : H.H = H.HVar{k, d, C.NoSp{}}
+      Cq{CsAll{[CpT{eq, apc(w.real(w), a, x), apc(w.real(w), b, x), (d + 1 : U32)}]}, cm}
+
+# an answer, and the store after it
+type Cb is Data:
+  Cb{z: Bool, cm: Cm}
+
+def cb.z(r: Cb) -> Bool:
+  match r:
+    case Cb{z, cm}:
+      z
+
+def cmp.or2(r: Cb, rest: Cm -> Cb) -> Cb:
+  match r:
+    case Cb{z, cm}:
+      match z:
+        case True{}:
+          rest(cm)
+        case False{}:
+          Cb{False{}, cm}
+
+def cmp.or(r: Cb, alt: Cm -> Cb, rest: Cm -> Cb) -> Cb:
+  match r:
+    case Cb{z, cm}:
+      match z:
+        case True{}:
+          rest(cm)
+        case False{}:
+          cmp.or2(alt(cm), rest)
 
 type Cst is Data:
   CstNext{}
-  CstGot{cs: Cs}
+  CstGot{r: Cq}
 
-def cmp.go(+fuel: Nat, +w: W, st: Cst, ps: List<&2, Cp>) -> Bool:
+def cmp.go(+fuel: Nat, +w: W, cm: Cm, st: Cst, ps: List<&2, Cp>) -> Cb:
   match fuel st:
     case 0n _:
-      False{}
+      Cb{False{}, cm}
     case 1n+p CstNext{}:
       match ps:
         case Nil{}:
-          True{}
+          Cb{True{}, cm}
         case Con{c, rest}:
-          cmp.go(p, w, CstGot{cmp.step(w, c)}, rest)
-    case 1n+p CstGot{cs}:
-      match cs:
-        case CsTrue{}:
-          cmp.go(p, w, CstNext{}, ps)
-        case CsFalse{}:
-          False{}
-        case CsAll{qs}:
-          cmp.go(p, w, CstNext{}, List.append(&2, Cp, qs, ps))
-        case CsOr{a, b}:
+          cmp.go(p, w, cm.off(), CstGot{cmp.step(w, cm, c)}, rest)
+    case 1n+p CstGot{r}:
+      match r:
+        case Cq{CsTrue{}, c2}:
+          cmp.go(p, w, c2, CstNext{}, ps)
+        case Cq{CsFalse{}, c2}:
+          Cb{False{}, c2}
+        case Cq{CsAll{qs}, c2}:
+          cmp.go(p, w, c2, CstNext{}, List.append(&2, Cp, qs, ps))
+        case Cq{CsOr{a, b}, c2}:
           +rest = ps
-          cmp.or(cmp.go(p, w, CstNext{}, a), u => cmp.go(p, w, CstNext{}, b), v => cmp.go(p, w, CstNext{}, rest))
+          cmp.or(cmp.go(p, w, c2, CstNext{}, a), y2 => cmp.go(p, w, y2, CstNext{}, b), y3 => cmp.go(p, w, y3, CstNext{}, rest))
 
-def cmp.first(z: Bool, +eq: Bool, +w: W, +a: H.H, +b: H.H, +d: U32) -> Bool:
-  match z:
-    case True{}:
-      True{}
-    case False{}:
-      cmp.go(FUEL(), w, CstNext{}, [CpT{eq, a, b, d}])
+def cmp.first(r: Cb, +eq: Bool, +w: W, +a: H.H, +b: H.H, +d: U32) -> Bool:
+  match r:
+    case Cb{z, cm}:
+      match z:
+        case True{}:
+          True{}
+        case False{}:
+          cb.z(cmp.go(FUEL(), w, cm, CstNext{}, [CpT{eq, a, b, d}]))
 
-# term_compare(mode, book, a, b, d): first with every def rigid, then as
-# usual (eq: mode EQ, else LE)
+# term_compare(mode, book, a, b, d) in store cm (the one a and b's cells
+# are in): first with every def rigid, then as usual (eq: mode EQ, else
+# LE). The second pass goes on in the first's store, as bend.ts's cells
+# keep what the rigid pass filled (a whnf there, read on from here)
+def compare.cm(+eq: Bool, +w: W, cm: Cm, +a: H.H, +b: H.H, +d: U32) -> Bool:
+  cmp.first(cmp.go(FUEL(), w.rigid(w.real(w)), cm, CstNext{}, [CpT{eq, a, b, d}]), eq, w, a, b, d)
+
+# term_compare on terms with no cells: a store of its own
 def compare(+eq: Bool, +w: W, +a: H.H, +b: H.H, +d: U32) -> Bool:
-  cmp.first(cmp.go(FUEL(), w.rigid(w.real(w)), CstNext{}, [CpT{eq, a, b, d}]), eq, w, a, b, d)
+  compare.cm(eq, w, cm.new(), a, b, d)

@@ -218,7 +218,7 @@ def sc.find(sc: List<&2, Sc>, +k: String) -> U32:
 def bk.tld.base(b: Bool, btl: Map<&2, C.Tld>, k: String) -> C.Tld:
   match b:
     case True{}:
-      Pair.snd(Map<&2, C.Tld>, C.Tld, Map.get(C.Tld, C.TlNone{}, btl, k))
+      C.mp.get(C.Tld, C.TlNone{}, btl, k)
     case False{}:
       C.TlNone{}
 
@@ -233,12 +233,12 @@ def bk.tld.or(+bon: Bool, btl: Map<&2, C.Tld>, +k: String, t: C.Tld) -> C.Tld:
 def bk.tld(b: Bk, +k: String) -> C.Tld:
   match b:
     case Bk{tl, ct, btl, bct, bon, hols}:
-      bk.tld.or(bon, btl, k, Pair.snd(Map<&2, C.Tld>, C.Tld, Map.get(C.Tld, C.TlNone{}, tl, k)))
+      bk.tld.or(bon, btl, k, C.mp.get(C.Tld, C.TlNone{}, tl, k))
 
 def bk.ctr.base(b: Bool, bct: Map<&2, U32>, k: String) -> U32:
   match b:
     case True{}:
-      Pair.snd(Map<&2, U32>, U32, Map.get(U32, C.NONE(), bct, k))
+      C.mp.get(U32, C.NONE(), bct, k)
     case False{}:
       C.NONE()
 
@@ -249,7 +249,7 @@ def bk.ctr.or(+bon: Bool, bct: Map<&2, U32>, +k: String, +n: U32) -> U32:
 def bk.ctr(b: Bk, +k: String) -> U32:
   match b:
     case Bk{tl, ct, btl, bct, bon, hols}:
-      bk.ctr.or(bon, bct, k, Pair.snd(Map<&2, U32>, U32, Map.get(U32, C.NONE(), ct, k)))
+      bk.ctr.or(bon, bct, k, C.mp.get(U32, C.NONE(), ct, k))
 
 def tld.is_none(t: C.Tld) -> Bool:
   match t:

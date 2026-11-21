@@ -125,24 +125,28 @@ The gate is `gate/m2file.sh` over each set, 8 files at a time on delfos (one
 bendbis process a file, as upstream is run): bendbis's output and exit
 code against upstream's saved ones (milestone 1's), byte for byte.
 
-Status, 2026-11-21 (delfos): not yet passed; every output bendbis gives is
-upstream's, and 8 files give none in time.
+Status, 2026-11-21 (delfos): passed. Every file gives upstream's output
+and exit code, byte for byte, within its timeout (60 s a test, 300 s an
+ana file).
 
-| set | files | as upstream, byte for byte | otherwise | timed out |
-|---|---|---|---|---|
-| upstream's tests and base.bend (HEAD) | 1,880 | 1,878 | 0 | 2 (60 s) |
-| the guide's examples (HEAD) | 28 | 28 | 0 | 0 |
-| ana's bend/ (2.0.39) | 253 | 247 | 0 | 6 (300 s) |
+| set | files | as upstream, byte for byte | otherwise | timed out | slowest |
+|---|---|---|---|---|---|
+| upstream's tests and base.bend (HEAD) | 1,880 | 1,880 | 0 | 0 | 6.2 s |
+| the guide's examples (HEAD) | 28 | 28 | 0 | 0 | |
+| ana's bend/ (2.0.39) | 253 | 253 | 0 | 0 | 152.8 s (CorpusV2.bend) |
 
-The two tests that time out need bend.ts's share cells: in
+Before share cells, 8 files gave no output in time (2 tests at 60 s, 6 of
+ana's at 300 s); with them, `u32_native_model` takes 5.7 s and
+`conversion_shared_cells_three_way` 0.5 s. Those two needed bend.ts's
+share cells: in
 `tests/base/u32_native_model.bend` Base's U32 ops run bit by bit on 32-bit
 words and each carry is read twice; `conversion_shared_cells_three_way`
 compares 18-deep chains of `+a(n) = m(a(n-1), a(n-1))`, which bend.ts
 walks once by linking cells it found equal. ana's six are
 CorpusV2.bend and the five files that import it (`c2.args`, milestone 1's
-11,402,874-node expansion). Next: share cells, scoped to one whnf, snf or
-comparison and resolved at its end (so no cell reaches the checker's
-terms), which keeps every output and makes those runs linear.
+11,402,874-node expansion). bendbis's share cells are scoped to one
+comparison (term_compare) and dropped when it answers, so no cell reaches
+the checker's terms (below, "What bendbis does differently").
 
 **Speed: bendbis against upstream.** The goal (2026-11-21): bendbis's wall
 time under upstream bend's on the same inputs, every gate still exact.
@@ -152,13 +156,18 @@ at HEAD under bun (2.0.39 for ana):
 
 | input | upstream | bendbis | bendbis / upstream |
 |---|---|---|---|
-| upstream's tests and base.bend (1,880 files) | 209.4 s | 272.3 s (one file out at 120 s) | 1.30 |
-| the guide's examples (28) | 1.53 s | 1.57 s | 1.03 |
-| base.bend | 0.127 s | 0.252 s | 1.98 |
+| upstream's tests and base.bend (1,880 files) | 223.6 s, 263.5 s | 187.7 s, 193.6 s | 0.71 to 0.87 |
+| the guide's examples (28) | 1.44 s | 1.40 s | 0.97 |
+| base.bend | 0.126 s | 0.219 s | 1.74 |
 | a file with no `import Base` (10 defs) | 0.030 s | 0.003 s | 0.10 |
-| ana's bend/Everything.bend | 1.16 to 1.53 s | 5.3 to 6.7 s | about 4.5 |
+| ana's bend/Everything.bend | 1.01 s | 4.10 s | 4.1 |
 
-Not faster yet. Where bendbis's time goes (perf, user space): reading
+(2026-11-21, after share cells; the tests twice each, back to back,
+bendbis first then upstream first; the no-Base row is from before. Before share cells the
+tests took 272.3 s against upstream's 209.4 s, one file out at 120 s.)
+
+Faster than upstream on the tests and the guide, not yet on base.bend or
+ana. Where bendbis's time goes (perf, user space): reading
 base.bend is about 180 ms of its 252, checking it about 70; of the reading,
 half is the runtime freeing and sharing memory (`term_drop`, `span_fade`),
 then closures (the parser's monad). Fixed so far, each the `Bool.pick` kind
@@ -209,15 +218,27 @@ in `~/.elan` or `~/.bend/bendtt`. On 60 of upstream's tests its
 
 ## What bendbis does differently (same output, other cost)
 
-- **No share cells (yet).** bend.ts's machine wraps each argument in a
-  cell it overwrites with the argument's whnf, and its comparison links two
-  cells it found equal; bendbis passes the argument itself, so a value read
-  twice is evaluated twice. Every verdict and message is the same; what
-  differs is the cost (the two tests above) and the identity shortcuts
-  bend.ts's comparison takes (`a === b` before and after the whnfs). Of
-  those, bendbis keeps the one the gate needs: two refs of one name are
-  equal before either is unfolded (`F() -> Type: @-x: F -> Empty` unfolds
-  forever otherwise), which changes no answer the walk would give.
+- **Share cells, inside one comparison.** bend.ts's machine wraps each
+  argument in a cell it overwrites with the argument's whnf, and its
+  comparison links two cells it found equal. bendbis makes cells only
+  inside one term_compare (and check-rfl's whnf of its goal with the
+  comparison after it), in a store (Wnf's Cm: a trie of cells, each a
+  filled whnf and its class's link) made there and dropped when the
+  comparison answers; a cell is an HVal whose index is 2^31 plus its
+  number, and anywhere the store is not (term_lower, h.force, the error
+  printer) it reads as its raw term, as bend.ts's term_force reads one.
+  So no cell reaches the checker's terms, and every other whnf passes the
+  argument itself (a value read twice there is evaluated twice). Every
+  verdict and message is the same; what can differ is cost, and the
+  identity shortcuts bend.ts's comparison takes (`a === b` before and
+  after the whnfs): bendbis takes them on two cells of one class, and on
+  two refs of one name before either is unfolded (`F() -> Type: @-x: F ->
+  Empty` unfolds forever otherwise), which changes no answer the walk
+  would give.
+- **Map reads.** Base's `Map.get`/`Map.has` answer the map too (the path
+  they walked, rebuilt); a caller that keeps its own map only drops it.
+  Core's `mp.find`/`mp.get`/`mp.has` walk the same trie and answer the
+  value alone; Check, Lex, Valid and Wnf read their maps through them.
 - **Base, once a process, and only when imported.** Base names nothing of
   an entry's, and nothing before it in book.order names a def of Base's, so
   its check is the same in every book: bendbis checks it once (when a file
