@@ -7,3 +7,7 @@ Copyright 2026 HigherOrderCO, licensed under the Apache License, Version
 (and, as it grows, bend2/comp.ts and bend2/main.ts) from TypeScript to
 Bend, made from bendlang/bend at commit 0e2f38f7 (2026-11-18); every file
 under src/ was changed in that port, and says so in its header.
+
+Bend was created by Victor Taelin and built by the HigherOrderCO team and
+Bend's contributors; README.md, "Credits", names them and what bendbis
+takes from Bend.

@@ -105,3 +105,29 @@ proof of False").
 `$HOME/src/bend2-upstream/bend2/base.bend`); `BEND_LIB` is read as bend
 reads it. Milestone 1's gate driver is `gate/m1.sh`; milestone 2's runs
 `gate/m2file.sh` on each file.
+
+## Credits
+
+bendbis exists because of [Bend](https://github.com/bendlang/bend), by
+[HigherOrderCO](https://github.com/HigherOrderCO). Bend was created by
+[Victor Taelin](https://github.com/VictorTaelin) and built by its team, as
+upstream's README credits them: Lorenzo W Battistela, Paulo J Cavalcanti,
+Nico Abril, Vanessa Ostroski, Vitor Chiarelli Neves and Alex Van de Sande,
+along with everyone who has contributed to bendlang/bend.
+
+What bendbis takes from Bend:
+
+- the language and what it means: bendbis's lexer, parser, checker and
+  error messages are a port of upstream's `bend2/bend.ts`, made from commit
+  `0e2f38f7`, and the files under `src/` say so in their headers;
+- `bend2/base.bend`, the base library bendbis reads;
+- the oracle: upstream's `bend` decides what bendbis must answer, and
+  upstream's `tests/` and the Bend blocks of its `guide/*.md` are bendbis's
+  gate;
+- BendTT, upstream's proven kernel (`bend2/bendtt.lean`): it checks
+  bendbis's laws, and `src/BendTT.bend` is the start of its port to Bend;
+- the compiler that builds bendbis: `bend src/Main.bend -o bendbis`.
+
+Bend is shared under the Apache License 2.0, and so is bendbis: see
+`LICENSE` and `NOTICE`. Mistakes in bendbis are bendbis's own; please
+report them here, not upstream.
