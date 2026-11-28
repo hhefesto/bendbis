@@ -1461,7 +1461,7 @@ def ivar(a: Maybe<&2, An>, +tm: H.H, +i: U32, qt: C.Q, ctx: Cx, +dn: String) -> 
 # infer-ref's end: a family head errs, else the ref (k, or its instance o)
 def iret(+o: String, +x: U32, +td: W.Td, +k: String, +s: C.Sp, +b: Bool, ctx: Cx, +dn: String) -> K(KV):
   K.if(KV, Bool.and(td.is_adt(td), U32.is_gt(W.td.n(td), 0)),
-    K.err(KV, ctx, ExS{"a family instance (write " ++ S.name.key(k) ++ "<..>)"}, Some{ExH{H.HRef{k, s, b}}}, s, Some{dn}, None{}, 0),
+    st => K.err(KV, ctx, ExS{"a family instance (write " ++ S.name.key(k) ++ "<..>)"}, Some{ExH{H.HRef{k, s, b}}}, s, Some{dn}, None{}, 0)(st),
     st => (do K<KV>:
       +bk : Map<&2, W.Td> <- K.tl()
       +A : H.H = td.T(W.td.get(bk, o))
@@ -1527,7 +1527,7 @@ def uses.close.at(+o: Maybe<&2, C.Q>, +us: Us, +ctx: Cx, +i: U32, +k: String, +q
   +none : Bool = Bool.not(Maybe.is_some(&2, C.Q, o))
   K.if(Us, W.q.eq(C.q.join(u, q), q),
     K.pure(Us, Bool.pick(Us, none, us, us.set(us, i, C.QN{}))),
-    K.err(Us, ctx, ExS{C.q.show(q) ++ k}, Some{ExS{Bool.pick(String, C.q.is_many(u), k ++ " (consumed more than once)", C.q.show(u) ++ k)}}, s, Some{dn}, None{}, 0))
+    st => K.err(Us, ctx, ExS{C.q.show(q) ++ k}, Some{ExS{Bool.pick(String, C.q.is_many(u), k ++ " (consumed more than once)", C.q.show(u) ++ k)}}, s, Some{dn}, None{}, 0)(st))
 
 # uses_close
 def uses.close(+ctx: Cx, +us: Us, +i: U32, +k: String, +q: C.Q, +s: C.Sp, +dn: String) -> K(Us):
@@ -1800,7 +1800,7 @@ def ck.go(+fuel: Nat, j: KJ) -> K(KV):
                 K.refk(k)
                 K.ref(kv.ret(tc))
                 return VI{kv.ret(tc), kv.us(tc), 0, EsNo{}})(st),
-              K.err(KV, ctx, ExS{S.name.key(k) ++ " with " ++ U32.show(n) ++ Bool.pick(String, U32.is_eq(n, 1), " parameter", " parameters")}, Some{ExH{H.HAdt{k, xs, r, s}}}, s, Some{lhs.dn(lhs)}, None{}, 0))
+              st => K.err(KV, ctx, ExS{S.name.key(k) ++ " with " ++ U32.show(n) ++ Bool.pick(String, U32.is_eq(n, 1), " parameter", " parameters")}, Some{ExH{H.HAdt{k, xs, r, s}}}, s, Some{lhs.dn(lhs)}, None{}, 0)(st))
         # infer-eql
         case H.HEql{a, b, +A, +s}:
           do K<KV>:
@@ -1884,10 +1884,10 @@ def ck.go(+fuel: Nat, j: KJ) -> K(KV):
                       +tc : KV <- ck.go(p, JTele{lhs, tel, xs, qt, ctx, d, s, UsTip{}})
                       K.ref(ty)
                       return VU{kv.us(tc), EsNo{}})(st2),
-                    K.err(KV, ctx, ExS{S.name.key(k) ++ " with " ++ U32.show(cr.n(c)) ++ Bool.pick(String, U32.is_eq(cr.n(c), 1), " field", " fields")}, Some{ExH{H.HCtr{k, xs, s}}}, s, Some{lhs.dn(lhs)}, None{}, 0)),
+                    st2 => K.err(KV, ctx, ExS{S.name.key(k) ++ " with " ++ U32.show(cr.n(c)) ++ Bool.pick(String, U32.is_eq(cr.n(c), 1), " field", " fields")}, Some{ExH{H.HCtr{k, xs, s}}}, s, Some{lhs.dn(lhs)}, None{}, 0)(st2)),
                   K.if(KV, ct.has(ct, k),
-                    K.err(KV, ctx, ExH{ty}, Some{ExH{H.HRef{cr.f(ct.get(ct, k)), s, False{}}}}, s, Some{lhs.dn(lhs)}, None{}, g),
-                    K.err(KV, ctx, ExS{"a declared constructor (" ++ S.name.key(h.adt.k(tw)) ++ " declares " ++ cr.names(cs) ++ ")"}, Some{ExH{H.HCtr{k, xs, s}}}, s, Some{lhs.dn(lhs)}, None{}, 0))))(st),
+                    st2 => K.err(KV, ctx, ExH{ty}, Some{ExH{H.HRef{cr.f(ct.get(ct, k)), s, False{}}}}, s, Some{lhs.dn(lhs)}, None{}, g)(st2),
+                    st2 => K.err(KV, ctx, ExS{"a declared constructor (" ++ S.name.key(h.adt.k(tw)) ++ " declares " ++ cr.names(cs) ++ ")"}, Some{ExH{H.HCtr{k, xs, s}}}, s, Some{lhs.dn(lhs)}, None{}, 0)(st2))))(st),
               st => (do K<KV>:
                 K.nop()
                 +fam : Maybe<&2, String> = fam.of(ct, k)
@@ -2008,7 +2008,7 @@ def ck.go(+fuel: Nat, j: KJ) -> K(KV):
                 st2 => ck.go(p, JChk{lhs, mm, qt, mgol, 0, ctx, d}, st2))
               K.ref(ty)
               return VU{us.join(kv.us(hc), kv.us(mc)), EsNo{}})(st),
-            K.err(KV, ctx, ExS{"a constructor of " ++ S.name.key(h.adt.k(aw)) ++ " (missing, or already matched)"}, Some{ExH{H.HMat{mk, mh, mm, s}}}, s, Some{lhs.dn(lhs)}, None{}, 0))
+            st => K.err(KV, ctx, ExS{"a constructor of " ++ S.name.key(h.adt.k(aw)) ++ " (missing, or already matched)"}, Some{ExH{H.HMat{mk, mh, mm, s}}}, s, Some{lhs.dn(lhs)}, None{}, 0)(st))
         case _:
           K.if(KV, List.is_empty(&2, W.Cr, rem),
             st => (do K<KV>:
@@ -2020,7 +2020,7 @@ def ck.go(+fuel: Nat, j: KJ) -> K(KV):
                 st2 => (do K<KV>:
                   K.ref(ty)
                   return VU{UsTip{}, EsNo{}})(st2),
-                K.err(KV, ctx, ExS{"this match doesn't cover " ++ cr.names(rem)}, None{}, s, Some{lhs.dn(lhs)}, Some{"Note: add the missing cases, or a catch-all case."}, 0)))(st))
+                st2 => K.err(KV, ctx, ExS{"this match doesn't cover " ++ cr.names(rem)}, None{}, s, Some{lhs.dn(lhs)}, Some{"Note: add the missing cases, or a catch-all case."}, 0)(st2)))(st))
 
     # check-any
     case 1n+p JAny{+tm, +lhs, +qt, +ty, +g, +ctx, +d}:

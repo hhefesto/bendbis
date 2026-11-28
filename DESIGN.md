@@ -806,6 +806,18 @@ than one session.
   `Box/Act.bend`, 4.03 / 1.70 / 1.05 s. ana's 253 files in the gate: 0.99
   of upstream's time before, 0.89 now; upstream's tests and base.bend:
   0.54 before, 0.48 now.
+- **Error arms built only when taken** (Check.bend). `K.if(A, z, a, b)`
+  takes both arms as values, so an arm written `K.err(.., ExS{x ++ y},
+  ..)` built its message on every check that passed and then freed it:
+  check-ctr spelled `S.name.key(k) ++ " with " ++ U32.show(..)` and a
+  datatype's whole constructor list (`cr.names(cs)`) for every
+  constructor it checked. Such an arm is now `st => K.err(..)(st)`, built
+  when run: iret, uses_close, infer-adt, check-ctr (three arms) and
+  check-mat (two). The messages are the same strings, built at the same
+  point of the run that prints them. gate9: 1,880 + 28 + 253 the same,
+  eta and G too; ana's 253 files 0.89 -> 0.76 of upstream's time,
+  upstream's tests 0.48 -> 0.44 (CorpusV2.bend 82 -> 66 s, upstream 73
+  s); ana's `tests/SimDrive.bend` alone 23.3 -> 19.3 s.
 - **Strictness.** A Bend def's arguments are evaluated before the call, so
   `Bool.pick(T, c, a, b)` evaluates both `a` and `b`. With a recursive call
   in each arm that is 2^n calls: bendbis's first `rows.other` (match
