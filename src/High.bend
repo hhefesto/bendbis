@@ -906,3 +906,303 @@ def hm.go(+fuel: Nat, +txt: List<&2, U32>, j: HJ) -> HR:
           HRT{C.THol{k, s}}
         case HAnn{x, A, s}:
           hm.go(p, txt, JL2{hm.go(p, txt, JL{x, d}), hm.go(p, txt, JL{A, d}), LAnn{s}})
+
+# The normal form in one walk
+# ---------------------------
+
+# nf(t) = term_lower(term_higher(t)) for a def body with no bare operator
+# (body.ops below decides, P.norm.by in PHelp.bend picks). An operator's is
+# the one error term_higher throws, so on such a body the machine above
+# answers HRT, and each node's normal form can be read in one walk, outside
+# in, instead of a higher node, and a closure a binder, that term_lower then
+# opens: a Var at its environment entry (a binder's Var(k, d), or a Sub's
+# pattern, read in the environment the Sub saw), a Lam's or an All's body
+# under Var(k, d) at depth d + 1, a Let's body under its bindings' vars at
+# d + n, a Sub's body under its pattern. The environment is the machine's,
+# its entries made by the same em.set calls, so an App whose head may turn
+# into a Lam (the beta step, the one place term_higher puts a term for a
+# variable) is the machine's whole (nf.slow), at the same environment and
+# depth. The order of the work differs, which only an error could show.
+type NJ is Data:
+  NjT{t: C.Tm, ev: Em, d: U32}
+  NjTs{ts: List<&2, C.Tm>, ev: Em, d: U32}
+  NjFd{fd: Fd, k: String, s: C.Sp, d: U32}
+  NjA{f: C.Tm, x: C.Tm, s: C.Sp, ev: Em, d: U32}
+  NjR{r: HR}
+
+# the machine on t, in ev at depth d (no operator below: the text an
+# operator's error quotes is not read)
+def nf.slow(t: C.Tm, ev: Em, d: U32) -> HR:
+  hm.go(4294967295n, Nil{}, JLB{hm.go(4294967295n, Nil{}, JH{t, ev}), d})
+
+# whether term_higher may make t a Lam: a Lam, under Subs, or an App's head
+# (a beta step's answer). A Var is not: nf's entries are binders' Vars and
+# patterns, whose terms are Vars and Ctrs
+def may.lam(t: C.Tm) -> Bool:
+  match t:
+    case C.TLam{k, i, f, s, q}:
+      True{}
+    case C.TSub{i, v, f, s}:
+      may.lam(f)
+    case C.TApp{f, x, s}:
+      may.lam(f)
+    case _:
+      False{}
+
+# a Var's step: a share cell's Var as it is, else its entry
+def nf.vj(cell: Bool, k: String, +i: U32, s: C.Sp, +ev: Em, d: U32) -> NJ:
+  match cell:
+    case True{}:
+      NjR{HRT{C.TVar{k, i, s}}}
+    case False{}:
+      NjFd{ev.find(ev, i), k, s, d}
+
+# an App's step: the machine's when its head may become a Lam
+def nf.aj(z: Bool, f: C.Tm, x: C.Tm, s: C.Sp, ev: Em, d: U32) -> NJ:
+  match z:
+    case True{}:
+      NjR{nf.slow(C.TApp{f, x, s}, ev, d)}
+    case False{}:
+      NjA{f, x, s, ev, d}
+
+# a Ref: an operator here is a bug of body.ops (loud, never a wrong term)
+def nf.ref(z: Bool, k: String, s: C.Sp, b: Bool) -> HR:
+  match z:
+    case True{}:
+      HRE{C.ErRaw{"bendbis: nf met an operator (body.ops missed it)"}}
+    case False{}:
+      HRT{C.TRef{k, s, b}}
+
+# an entry's HTerm (its span adopted) lowered at d: a binder's Var at once
+def nf.h(h: H, +d: U32) -> HR:
+  match h:
+    case HVar{k, i, s}:
+      HRT{C.TVar{k, i, s}}
+    case h:
+      hm.go(4294967295n, Nil{}, JL{h, d})
+
+# a node rebuilt from its parts' answers (the first error, left to right,
+# is the answer, as term_lower's JL1..JL3 and JLs)
+def nf.k1(r: HR, sh: Lsh) -> HR:
+  match r:
+    case HRT{a}:
+      HRT{t.b1(sh, a)}
+    case HRE{e}:
+      HRE{e}
+    case _:
+      HRE{C.ErRaw{"bendbis: nf.k1"}}
+
+def nf.k2(ra: HR, rb: HR, sh: Lsh) -> HR:
+  match ra rb:
+    case HRT{a} HRT{b}:
+      HRT{t.b2(sh, a, b)}
+    case HRE{e} _:
+      HRE{e}
+    case _ HRE{e}:
+      HRE{e}
+    case _ _:
+      HRE{C.ErRaw{"bendbis: nf.k2"}}
+
+def nf.k3(ra: HR, rb: HR, rc: HR, sh: Lsh) -> HR:
+  match ra rb rc:
+    case HRT{a} HRT{b} HRT{c}:
+      HRT{t.b3(sh, a, b, c)}
+    case HRE{e} _ _:
+      HRE{e}
+    case _ HRE{e} _:
+      HRE{e}
+    case _ _ HRE{e}:
+      HRE{e}
+    case _ _ _:
+      HRE{C.ErRaw{"bendbis: nf.k3"}}
+
+def nf.ks(r: HR, sh: Lsh) -> HR:
+  match r:
+    case HRTs{ts}:
+      HRT{t.build(sh, ts)}
+    case HRE{e}:
+      HRE{e}
+    case _:
+      HRE{C.ErRaw{"bendbis: nf.ks"}}
+
+def nf.cons(ra: HR, rb: HR) -> HR:
+  match ra rb:
+    case HRT{a} HRTs{xs}:
+      HRTs{a <> xs}
+    case HRE{e} _:
+      HRE{e}
+    case _ HRE{e}:
+      HRE{e}
+    case _ _:
+      HRE{C.ErRaw{"bendbis: nf.cons"}}
+
+# a Let: its values at d, its body under its bindings' Vars at d + n (as
+# t.build's LLet: bnds.zip numbers them d, d + 1, ..)
+def nf.let(rv: HR, rb: HR, ms: List<&2, Bm>, +d: U32, s: C.Sp) -> HR:
+  match rv rb:
+    case HRTs{vs} HRT{b}:
+      HRT{C.TLet{bnds.zip(ms, d, vs), b, s}}
+    case HRE{e} _:
+      HRE{e}
+    case _ HRE{e}:
+      HRE{e}
+    case _ _:
+      HRE{C.ErRaw{"bendbis: nf.let"}}
+
+def nf.go(+fuel: Nat, j: NJ) -> HR:
+  match fuel j:
+    case 0n _:
+      HRE{C.ErRaw{"bendbis: term_higher ran out of fuel"}}
+    case 1n+p NjR{r}:
+      r
+    case 1n+p NjTs{ts, +ev, +d}:
+      match ts:
+        case Nil{}:
+          HRTs{Nil{}}
+        case Con{t, r}:
+          nf.cons(nf.go(p, NjT{t, ev, d}), nf.go(p, NjTs{r, ev, d}))
+    case 1n+p NjFd{fd, k, +s, +d}:
+      match fd:
+        case FdNo{}:
+          HRT{C.TRef{k, s, False{}}}
+        case FdH{h}:
+          nf.h(h.adopt(h, s), d)
+        case FdP{q, e}:
+          nf.go(p, NjT{patt.term(q, s), e, d})
+    case 1n+p NjA{f, x, s, +ev, +d}:
+      nf.k2(nf.go(p, NjT{f, ev, d}), nf.go(p, NjT{x, ev, d}), LApp{s})
+    case 1n+p NjT{t, +ev, +d}:
+      match t:
+        case C.TVar{k, +i, s}:
+          nf.go(p, nf.vj(U32.is_eq(i, C.MINUS()), k, i, s, ev, d))
+        case C.TVr{k, i, s, r}:
+          HRT{C.TRef{r, s, False{}}}
+        case C.TRef{+k, s, b}:
+          nf.ref(is_op(k), k, s, b)
+        case C.TSub{+i, v, f, s}:
+          nf.go(p, NjT{f, em.set(ev, i, EvP{v, ev}), d})
+        case C.TLet{+bs, f, s}:
+          +ms = bnd.metas(bs)
+          +n = U32.from_nat(List.length(&2, Bm, ms))
+          nf.let(nf.go(p, NjTs{bnd.vals(bs), ev, d}), nf.go(p, NjT{f, let.bind(ms, let.vars(ms, d), ev), (d + n : U32)}), ms, d, s)
+        case C.TTyp{g, s}:
+          nf.k1(nf.go(p, NjT{g, ev, d}), LTyp{s})
+        case C.TQnt{s}:
+          HRT{C.TQnt{s}}
+        case C.TQua{q, s}:
+          HRT{C.TQua{q, s}}
+        case C.TMin{a, b, s}:
+          nf.k2(nf.go(p, NjT{a, ev, d}), nf.go(p, NjT{b, ev, d}), LMin{s})
+        case C.TAll{q, +k, +i, A, B, s}:
+          nf.k2(nf.go(p, NjT{A, ev, d}), nf.go(p, NjT{B, em.set(ev, i, EvH{HVar{k, d, C.NoSp{}}}), (d + 1 : U32)}), LAll{q, k, d, s})
+        case C.TLam{+k, +i, f, s, q}:
+          nf.k1(nf.go(p, NjT{f, em.set(ev, i, EvH{HVar{k, d, C.NoSp{}}}), (d + 1 : U32)}), LLam{k, d, s, q})
+        case C.TApp{+f, x, s}:
+          nf.go(p, nf.aj(may.lam(f), f, x, s, ev, d))
+        case C.TAdt{k, xs, r, s}:
+          nf.ks(nf.go(p, NjTs{xs, ev, d}), LAdt{k, r, s})
+        case C.TCtr{k, xs, s}:
+          nf.ks(nf.go(p, NjTs{xs, ev, d}), LCtr{k, s})
+        case C.TNat{v, s}:
+          HRT{C.TNat{v, s}}
+        case C.TU32{v, s}:
+          HRT{C.TU32{v, s}}
+        case C.TF32{v, s}:
+          HRT{C.TF32{v, s}}
+        case C.TStr{v, s}:
+          HRT{C.TStr{v, s}}
+        case C.TMat{k, h, m, s}:
+          nf.k2(nf.go(p, NjT{h, ev, d}), nf.go(p, NjT{m, ev, d}), LMat{k, s})
+        case C.TEfq{s}:
+          HRT{C.TEfq{s}}
+        case C.TEql{a, b, A, s}:
+          nf.k3(nf.go(p, NjT{a, ev, d}), nf.go(p, NjT{b, ev, d}), nf.go(p, NjT{A, ev, d}), LEql{s})
+        case C.TRfl{s}:
+          HRT{C.TRfl{s}}
+        case C.TRwt{e, m, f, s}:
+          nf.k3(nf.go(p, NjT{e, ev, d}), nf.go(p, NjT{m, ev, d}), nf.go(p, NjT{f, ev, d}), LRwt{s})
+        case C.THol{k, s}:
+          HRT{C.THol{k, s}}
+        case C.TAnn{x, A, s}:
+          nf.k2(nf.go(p, NjT{x, ev, d}), nf.go(p, NjT{A, ev, d}), LAnn{s})
+
+def nf(t: C.Tm) -> HR:
+  nf.go(4294967295n, NjT{t, EmTip{}, 0})
+
+# whether a def body names a bare operator (a Ref is_op holds of) anywhere
+# (then P.norm.by takes the machine, whose error, the first operator in its
+# order, is the answer): a work list, on fuel; out of fuel, yes
+type OpW is Data:
+  OwT{t: C.Tm}
+  OwB{b: C.Body}
+
+def ow.ts(ts: List<&2, C.Tm>, r: List<&2, OpW>) -> List<&2, OpW>:
+  match ts:
+    case Nil{}:
+      r
+    case Con{t, u}:
+      OwT{t} <> ow.ts(u, r)
+
+def ow.rows(rs: List<&2, C.Row>, r: List<&2, OpW>) -> List<&2, OpW>:
+  match rs:
+    case Nil{}:
+      r
+    case Con{C.Row{ps, f}, u}:
+      OwB{f} <> ow.rows(u, r)
+
+def ow.bnds(bs: List<&2, C.Bnd>, r: List<&2, OpW>) -> List<&2, OpW>:
+  match bs:
+    case Nil{}:
+      r
+    case Con{C.Bnd{k, i, q, v}, u}:
+      OwT{v} <> ow.bnds(u, r)
+
+def ops.go(fuel: Nat, ws: List<&2, OpW>) -> Bool:
+  match fuel ws:
+    case 0n _:
+      True{}
+    case _ Nil{}:
+      False{}
+    case 1n+f Con{OwB{b}, r}:
+      match b:
+        case C.BMat{es, rs, s}:
+          ops.go(f, ow.ts(es, ow.rows(rs, r)))
+        case C.BLoc{ks, q, vs, g}:
+          ops.go(f, ow.ts(vs, OwB{g} <> r))
+        case C.BTm{t}:
+          ops.go(f, OwT{t} <> r)
+    case 1n+f Con{OwT{t}, r}:
+      match t:
+        case C.TRef{k, s, b}:
+          Bool.or(is_op(k), ops.go(f, r))
+        case C.TSub{i, v, g, s}:
+          ops.go(f, OwT{g} <> r)
+        case C.TLet{bs, g, s}:
+          ops.go(f, ow.bnds(bs, OwT{g} <> r))
+        case C.TTyp{g, s}:
+          ops.go(f, OwT{g} <> r)
+        case C.TMin{a, b, s}:
+          ops.go(f, OwT{a} <> OwT{b} <> r)
+        case C.TAll{q, k, i, A, B, s}:
+          ops.go(f, OwT{A} <> OwT{B} <> r)
+        case C.TLam{k, i, g, s, q}:
+          ops.go(f, OwT{g} <> r)
+        case C.TApp{a, b, s}:
+          ops.go(f, OwT{a} <> OwT{b} <> r)
+        case C.TAdt{k, xs, rr, s}:
+          ops.go(f, ow.ts(xs, r))
+        case C.TCtr{k, xs, s}:
+          ops.go(f, ow.ts(xs, r))
+        case C.TMat{k, h, m, s}:
+          ops.go(f, OwT{h} <> OwT{m} <> r)
+        case C.TEql{a, b, A, s}:
+          ops.go(f, OwT{a} <> OwT{b} <> OwT{A} <> r)
+        case C.TRwt{e, m, g, s}:
+          ops.go(f, OwT{e} <> OwT{m} <> OwT{g} <> r)
+        case C.TAnn{x, A, s}:
+          ops.go(f, OwT{x} <> OwT{A} <> r)
+        case _:
+          ops.go(f, r)
+
+def body.ops(b: C.Body) -> Bool:
+  ops.go(4294967295n, [OwB{b}])

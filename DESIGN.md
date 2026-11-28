@@ -834,6 +834,41 @@ than one session.
   eta and G too; ana's 253 files 0.89 -> 0.76 of upstream's time,
   upstream's tests 0.48 -> 0.44 (CorpusV2.bend 82 -> 66 s, upstream 73
   s); ana's `tests/SimDrive.bend` alone 23.3 -> 19.3 s.
+- **A def body's normal form in one walk** (High.bend's `nf`, PHelp's
+  `P.norm.by`). `term_lower(term_higher(t))` made every node twice: a
+  higher node and, a binder, a closure, which term_lower then opened. Its
+  one error is a bare operator's, so on a body that names none
+  (`body.ops`, a walk of the parsed body before flattening, which adds
+  no Ref) the machine answers a term, and `nf` reads each node's normal
+  form at once in the machine's own environment, its entries made by the
+  same `em.set` calls: a Var at its entry, a Lam's or an All's body under
+  Var(k, d) at d + 1, a Let's body under its bindings' Vars at d + n, a
+  Sub's body under its pattern. An App whose head may become a Lam (the
+  beta step, the one place term_higher puts a term for a variable) is
+  the machine's, whole, at the same environment and depth; a body with
+  an operator is the machine's, whole, so its error is the one in its
+  order. Laws (LAWS.bend, `--verdict`): `nf.u32`, `nf.free`, `nf.lam`,
+  `nf.sub`, `nf.let`, `nf.beta`, instances, one a kind of step, where
+  both sides compute and meet; a wrong one (the occurrence's name for the
+  binder's) fails. gate10: 1,880 + 28 + 253 the same, eta and G too.
+  SimDrive's parse 9.07 -> 7.92 s; the rest of a normal form's cost is
+  the environment's trie (an `em.set` copies a path of about ten nodes,
+  freed again after the subtree; an `em.get` walks one, every node
+  shared).
+- **check-ctr's success path in one read** (Check.bend's `ctr.find`;
+  `K.w`, `khead` and `kfill` pass the state by hand, no bind). check-ctr
+  read the book three times through the monad, rebuilt the datatype's
+  constructor list without the refined-away names (`cr.drop`) and walked
+  it twice (`cr.has`, `cr.get`), for every constructor it checked (a U32
+  literal in a pattern is 32 `WCon`s and 32 Bools). `ctr.find` reads the
+  type's whnf, the datatype's entry and the constructor in one pure walk:
+  the first constructor of that name, not in r, which is the entry
+  `cr.get` finds in `cr.drop`'s list (it keeps the order and drops only
+  names in r). When a read fails, the rule's own reads run again and make
+  its error. gate11: 1,880 + 28 + 253 the same, eta and G too; ana's 253
+  files 0.76 -> 0.70 of upstream's time, upstream's tests 0.44 -> 0.42;
+  SimDrive 19.7 -> 15.2 s (upstream 9.4), its 245,621-node cut 1.31 ->
+  1.05 s (upstream 1.03).
 - **Strictness.** A Bend def's arguments are evaluated before the call, so
   `Bool.pick(T, c, a, b)` evaluates both `a` and `b`. With a recursive call
   in each arm that is 2^n calls: bendbis's first `rows.other` (match

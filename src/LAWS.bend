@@ -1,6 +1,7 @@
 import Base
 import ./Core.bend as C
 import ./Flat.bend as F
+import ./High.bend as H
 
 # bendbis: Bend implemented in Bend. Copyright 2026 HigherOrderCO (upstream
 # bendlang/bend) and hhefesto; Apache-2.0, see LICENSE and NOTICE.
@@ -714,3 +715,77 @@ def tms.has.out(hit, ps, ts, i):
       {==}
     case False{} Con{p, r} Con{t, u}:
       {==}
+
+# The normal form in one walk (High.bend's nf): on a body with no bare
+# operator, term_lower(term_higher(t)) read in one walk. Instances, one a
+# kind of step: each side is computed (the machine is H.nf.slow at the
+# empty environment and depth 0, P.norm's call), and they meet. The gates
+# compare the two on every file's every def (DESIGN.md, "The gates")
+law nf.u32:
+  for +n: U32
+  for +s: C.Sp
+  {H.nf(C.TU32{n, s}) == H.nf.slow(C.TU32{n, s}, H.EmTip{}, 0) : H.HR}
+
+def nf.u32(n, s):
+  {==}
+
+# a free name is a Ref at its span
+law nf.free:
+  for k: String
+  for +s: C.Sp
+  {H.nf(C.TVar{k, 5, s}) == H.nf.slow(C.TVar{k, 5, s}, H.EmTip{}, 0) : H.HR}
+
+def nf.free(k, s):
+  {==}
+
+# a Lam's Var is Var(k, 0) under it, with the occurrence's span
+law nf.lam:
+  for +k: String
+  for j: String
+  for +f: U32
+  for +b: U32
+  for +e: U32
+  for +s: C.Sp
+  for q: C.Q
+  {H.nf(C.TLam{k, 3, C.TVar{j, 3, C.Sp{f, b, e}}, s, q}) == H.nf.slow(C.TLam{k, 3, C.TVar{j, 3, C.Sp{f, b, e}}, s, q}, H.EmTip{}, 0) : H.HR}
+
+def nf.lam(k, j, f, b, e, s, q):
+  {==}
+
+# a Sub's Var is its pattern, read where the Sub stands
+law nf.sub:
+  for x: String
+  for h: String
+  for +f: U32
+  for +b: U32
+  for +e: U32
+  {H.nf(C.TSub{2, C.PCtr{"Con", [C.PVar{h, 7, C.QL{}, C.NoSp{}}], C.NoSp{}}, C.TVar{x, 2, C.Sp{f, b, e}}, C.NoSp{}}) == H.nf.slow(C.TSub{2, C.PCtr{"Con", [C.PVar{h, 7, C.QL{}, C.NoSp{}}], C.NoSp{}}, C.TVar{x, 2, C.Sp{f, b, e}}, C.NoSp{}}, H.EmTip{}, 0) : H.HR}
+
+def nf.sub(x, h, f, b, e):
+  {==}
+
+# a Let's body sees its binding's Var at d
+law nf.let:
+  for +x: String
+  for y: String
+  for +n: U32
+  for +f: U32
+  for +b: U32
+  for +e: U32
+  {H.nf(C.TLet{[C.Bnd{x, 4, C.QL{}, C.TU32{n, C.NoSp{}}}], C.TVar{y, 4, C.Sp{f, b, e}}, C.NoSp{}}) == H.nf.slow(C.TLet{[C.Bnd{x, 4, C.QL{}, C.TU32{n, C.NoSp{}}}], C.TVar{y, 4, C.Sp{f, b, e}}, C.NoSp{}}, H.EmTip{}, 0) : H.HR}
+
+def nf.let(x, y, n, f, b, e):
+  {==}
+
+# a Lam applied: the machine's beta step, as nf hands it over
+law nf.beta:
+  for +x: String
+  for +n: U32
+  for +f: U32
+  for +b: U32
+  for +e: U32
+  for q: C.Q
+  {H.nf(C.TApp{C.TLam{x, 1, C.TVar{x, 1, C.Sp{f, b, e}}, C.NoSp{}, q}, C.TU32{n, C.NoSp{}}, C.NoSp{}}) == H.nf.slow(C.TApp{C.TLam{x, 1, C.TVar{x, 1, C.Sp{f, b, e}}, C.NoSp{}, q}, C.TU32{n, C.NoSp{}}, C.NoSp{}}, H.EmTip{}, 0) : H.HR}
+
+def nf.beta(x, n, f, b, e, q):
+  {==}

@@ -593,6 +593,16 @@ def P.norm(t: C.Tm) -> L.P(C.Tm):
     +e : L.Env <- L.P.env()
     norm.got(H.hm.go(4294967295n, L.env.txt(e), H.JLB{H.hm.go(4294967295n, L.env.txt(e), H.JH{t, H.EmTip{}}), 0}))
 
+# a def body's term_lower(term_higher(t)): the machine when the body names
+# a bare operator (its error, the first in its order, is the answer), else
+# the one-walk normal form (High.bend's nf), the same term
+def P.norm.by(ops: Bool, t: C.Tm) -> L.P(C.Tm):
+  match ops:
+    case True{}:
+      P.norm(t)
+    case False{}:
+      norm.got(H.nf(t))
+
 # tele_bind(tele, end)
 def tele.bind(te: List<&2, Te>, end: C.Tm) -> C.Tm:
   match te:

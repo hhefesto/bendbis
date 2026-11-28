@@ -552,8 +552,14 @@ def K.tl.go(st: Ks) -> KR<Map<&2, W.Td>>:
 def K.tl() -> K(Map<&2, W.Td>):
   st => K.tl.go(st)
 
+# the book as the world wnf reads (K.tl's map, both sides), read in one step
+def K.w.go(st: Ks) -> KR<W.W>:
+  match st:
+    case Ks{+tl, ct, tp, rs, g, fs, hols}:
+      KOk{W.W{tl, tl}, Ks{tl, ct, tp, rs, g, fs, hols}}
+
 def K.w() -> K(W.W):
-  K.bind(Map<&2, W.Td>, W.W, K.tl(), +tl => K.pure(W.W, W.W{tl, tl}))
+  st => K.w.go(st)
 
 def K.ct.go(st: Ks) -> KR<Map<&2, W.Cr>>:
   match st:
@@ -1504,23 +1510,122 @@ def kadt(td: W.Td, +k: String, r: List<&2, String>, +s: C.Sp, +ctx: Cx, +dn: May
         +ks : String = S.name.show(fl, k)
         K.err(KV, ctx, ExS{"a declared datatype"}, None{}, s, dn, Some{"Note: " ++ ks ++ " is a def" ++ Bool.pick(String, U32.is_eq(n, 0), " with no arguments: write it as " ++ ks, ": write its arguments as ()")}, 0)
 
-# tele_head
-def khead(+tel: H.H, +ctx: Cx, +dn: Maybe<&2, String>, +s: C.Sp) -> K(H.H):
-  do K<H.H>:
-    +w : W.W <- K.w()
-    +t : H.H = W.wnf(w, tel)
-    K.if(H.H, h.is_all(t), K.pure(H.H, t), K.err(H.H, ctx, ExS{"unreachable (a telescope binds its parameters and fields)"}, None{}, s, dn, None{}, 0))
+# check-ctr's reads when they all succeed (the rule's success path): ty's
+# whnf a datatype of the book, k its first constructor of that name, not
+# refined away (r), with n fields: the datatype's arguments and that
+# constructor's telescope. Else CfNo, and the rule makes its reads again
+# for its error. The same entry as cr.get(cr.drop(cs, r), k): cr.drop
+# keeps the order and drops only names in r, k's among them iff k is
+type CF is Data:
+  CfOk{xs: List<&2, H.H>, T: H.H}
+  CfNo{}
 
-# tele_fill
+def cr.hit(z: Bool, c: W.Cr) -> Maybe<&2, W.Cr>:
+  match z:
+    case True{}:
+      Some{c}
+    case False{}:
+      None{}
+
+def cr.find.go(cs: List<&2, W.Cr>, +k: String, hit: Maybe<&2, W.Cr>) -> Maybe<&2, W.Cr>:
+  match cs hit:
+    case _ Some{c}:
+      Some{c}
+    case Nil{} None{}:
+      None{}
+    case Con{W.Cr{+j, n, T, f}, t} None{}:
+      cr.find.go(t, k, cr.hit(String.eq(j, k), W.Cr{j, n, T, f}))
+
+def ctr.find.n(z: Bool, xs: List<&2, H.H>, T: H.H) -> CF:
+  match z:
+    case True{}:
+      CfOk{xs, T}
+    case False{}:
+      CfNo{}
+
+def ctr.find.cr(c: Maybe<&2, W.Cr>, gone: Bool, xs: List<&2, H.H>, +n: U32) -> CF:
+  match c gone:
+    case Some{W.Cr{j, m, T, f}} False{}:
+      ctr.find.n(U32.is_eq(n, m), xs, T)
+    case _ _:
+      CfNo{}
+
+def ctr.find.td(td: W.Td, +r: List<&2, String>, xs: List<&2, H.H>, +k: String, +n: U32) -> CF:
+  match td:
+    case W.TdAdt{an, ag, T, c, b}:
+      ctr.find.cr(cr.find.go(c, k, None{}), W.strs.has(r, k), xs, n)
+    case _:
+      CfNo{}
+
+def ctr.find.adt(z: Bool, +tl: Map<&2, W.Td>, +tw: H.H, +k: String, +n: U32) -> CF:
+  match z:
+    case True{}:
+      ctr.find.td(W.td.get(tl, h.adt.k(tw)), h.adt.r(tw), h.adt.x(tw), k, n)
+    case False{}:
+      CfNo{}
+
+def ctr.find(+tl: Map<&2, W.Td>, +ty: H.H, +k: String, +n: U32) -> CF:
+  +tw : H.H = W.wnf(W.W{tl, tl}, ty)
+  ctr.find.adt(h.is_adt(tw), tl, tw, k, n)
+
+def cf.ok(c: CF) -> Bool:
+  match c:
+    case CfOk{xs, T}:
+      True{}
+    case CfNo{}:
+      False{}
+
+def cf.xs(c: CF) -> List<&2, H.H>:
+  match c:
+    case CfOk{xs, T}:
+      xs
+    case CfNo{}:
+      Nil{}
+
+def cf.T(c: CF) -> H.H:
+  match c:
+    case CfOk{xs, T}:
+      T
+    case CfNo{}:
+      H.HEfq{C.NoSp{}}
+
+# tele_head (the state passed by hand: the book read once, no bind)
+def khead.at(z: Bool, t: H.H, ctx: Cx, dn: Maybe<&2, String>, s: C.Sp, st: Ks) -> KR<H.H>:
+  match z:
+    case True{}:
+      KOk{t, st}
+    case False{}:
+      K.err(H.H, ctx, ExS{"unreachable (a telescope binds its parameters and fields)"}, None{}, s, dn, None{}, 0)(st)
+
+def khead.go(+tel: H.H, +ctx: Cx, +dn: Maybe<&2, String>, +s: C.Sp, st: Ks) -> KR<H.H>:
+  match st:
+    case Ks{+tl, ct, tp, rs, g, fs, hols}:
+      +t : H.H = W.wnf(W.W{tl, tl}, tel)
+      khead.at(h.is_all(t), t, ctx, dn, s, Ks{tl, ct, tp, rs, g, fs, hols})
+
+def khead(+tel: H.H, +ctx: Cx, +dn: Maybe<&2, String>, +s: C.Sp) -> K(H.H):
+  st => khead.go(tel, ctx, dn, s, st)
+
+# tele_fill (the state passed by hand: each parameter's head, then its
+# closure applied, in the book after it)
+def kfill.step(r: KR<H.H>, x: H.H) -> KR<H.H>:
+  match r:
+    case KOk{a, Ks{+tl, ct, tp, rs, g, fs, hols}}:
+      KOk{W.apc(tl, h.all.cl(a), x), Ks{tl, ct, tp, rs, g, fs, hols}}
+    case KErr{e}:
+      KErr{e}
+
+def kfill.go(xs: List<&2, H.H>, r: KR<H.H>, +ctx: Cx, +dn: Maybe<&2, String>, +s: C.Sp) -> KR<H.H>:
+  match xs r:
+    case _ KErr{e}:
+      KErr{e}
+    case Nil{} KOk{tel, st}:
+      KOk{tel, st}
+    case Con{x, t} KOk{tel, st}:
+      kfill.go(t, kfill.step(khead.go(tel, ctx, dn, s, st), x), ctx, dn, s)
+
 def kfill(xs: List<&2, H.H>, +tel: H.H, +ctx: Cx, +dn: Maybe<&2, String>, +s: C.Sp) -> K(H.H):
-  match xs:
-    case Nil{}:
-      K.pure(H.H, tel)
-    case Con{+x, t}:
-      do K<H.H>:
-        +a : H.H <- khead(tel, ctx, dn, s)
-        +w : W.W <- K.w()
-        kfill(t, W.apc(W.w.real(w), h.all.cl(a), x), ctx, dn, s)
+  st => kfill.go(xs, KOk{tel, st}, ctx, dn, s)
 
 def uses.close.at(+o: Maybe<&2, C.Q>, +us: Us, +ctx: Cx, +i: U32, +k: String, +q: C.Q, +s: C.Sp, +dn: String) -> K(Us):
   +u : C.Q = Maybe.default(&2, C.Q, o, C.QN{})
@@ -1865,33 +1970,42 @@ def ck.go(+fuel: Nat, j: KJ) -> K(KV):
         # check-let
         case H.HLet{+bs, +cl, +s}:
           ck.go(p, JLet{bs, 0, UsTip{}, ctx, bs, cl, s, lhs, qt, ty, g, ctx, d})
-        # check-ctr
+        # check-ctr (its success path at once, ctr.find; else its reads again)
         case H.HCtr{+k, +xs, +s}:
           do K<KV>:
-            +w : W.W <- K.w()
-            +tw : H.H = W.wnf(w, ty)
-            +bk : Map<&2, W.Td> <- K.tl()
-            +ct : Map<&2, W.Cr> <- K.ct()
-            K.if(KV, h.is_adt(tw),
+            +bk0 : Map<&2, W.Td> <- K.tl()
+            +cf : CF = ctr.find(bk0, ty, k, hs.len(xs))
+            K.if(KV, cf.ok(cf),
               st => (do K<KV>:
-                +a : KV <- kadt(W.td.get(bk, h.adt.k(tw)), h.adt.k(tw), h.adt.r(tw), H.h.s(tw), ctx, Some{lhs.dn(lhs)})
-                +cs : List<&2, W.Cr> = kv.c(a)
-                +c : W.Cr = cr.get(cs, k)
-                K.if(KV, cr.has(cs, k),
-                  K.if(KV, U32.is_eq(hs.len(xs), cr.n(c)),
-                    st2 => (do K<KV>:
-                      +tel : H.H <- kfill(h.adt.x(tw), cr.T(c), ctx, Some{lhs.dn(lhs)}, s)
-                      +tc : KV <- ck.go(p, JTele{lhs, tel, xs, qt, ctx, d, s, UsTip{}})
-                      K.ref(ty)
-                      return VU{kv.us(tc), EsNo{}})(st2),
-                    st2 => K.err(KV, ctx, ExS{S.name.key(k) ++ " with " ++ U32.show(cr.n(c)) ++ Bool.pick(String, U32.is_eq(cr.n(c), 1), " field", " fields")}, Some{ExH{H.HCtr{k, xs, s}}}, s, Some{lhs.dn(lhs)}, None{}, 0)(st2)),
-                  K.if(KV, ct.has(ct, k),
-                    st2 => K.err(KV, ctx, ExH{ty}, Some{ExH{H.HRef{cr.f(ct.get(ct, k)), s, False{}}}}, s, Some{lhs.dn(lhs)}, None{}, g)(st2),
-                    st2 => K.err(KV, ctx, ExS{"a declared constructor (" ++ S.name.key(h.adt.k(tw)) ++ " declares " ++ cr.names(cs) ++ ")"}, Some{ExH{H.HCtr{k, xs, s}}}, s, Some{lhs.dn(lhs)}, None{}, 0)(st2))))(st),
+                +tel : H.H <- kfill(cf.xs(cf), cf.T(cf), ctx, Some{lhs.dn(lhs)}, s)
+                +tc : KV <- ck.go(p, JTele{lhs, tel, xs, qt, ctx, d, s, UsTip{}})
+                K.ref(ty)
+                return VU{kv.us(tc), EsNo{}})(st),
               st => (do K<KV>:
-                K.nop()
-                +fam : Maybe<&2, String> = fam.of(ct, k)
-                K.err(KV, ctx, ExH{ty}, Some{fam.obs(fam, s)}, s, Some{lhs.dn(lhs)}, dt.note(fam, dt.find(bk, k)), g))(st))
+                +w : W.W <- K.w()
+                +tw : H.H = W.wnf(w, ty)
+                +bk : Map<&2, W.Td> <- K.tl()
+                +ct : Map<&2, W.Cr> <- K.ct()
+                K.if(KV, h.is_adt(tw),
+                  st => (do K<KV>:
+                    +a : KV <- kadt(W.td.get(bk, h.adt.k(tw)), h.adt.k(tw), h.adt.r(tw), H.h.s(tw), ctx, Some{lhs.dn(lhs)})
+                    +cs : List<&2, W.Cr> = kv.c(a)
+                    +c : W.Cr = cr.get(cs, k)
+                    K.if(KV, cr.has(cs, k),
+                      K.if(KV, U32.is_eq(hs.len(xs), cr.n(c)),
+                        st2 => (do K<KV>:
+                          +tel : H.H <- kfill(h.adt.x(tw), cr.T(c), ctx, Some{lhs.dn(lhs)}, s)
+                          +tc : KV <- ck.go(p, JTele{lhs, tel, xs, qt, ctx, d, s, UsTip{}})
+                          K.ref(ty)
+                          return VU{kv.us(tc), EsNo{}})(st2),
+                        st2 => K.err(KV, ctx, ExS{S.name.key(k) ++ " with " ++ U32.show(cr.n(c)) ++ Bool.pick(String, U32.is_eq(cr.n(c), 1), " field", " fields")}, Some{ExH{H.HCtr{k, xs, s}}}, s, Some{lhs.dn(lhs)}, None{}, 0)(st2)),
+                      K.if(KV, ct.has(ct, k),
+                        st2 => K.err(KV, ctx, ExH{ty}, Some{ExH{H.HRef{cr.f(ct.get(ct, k)), s, False{}}}}, s, Some{lhs.dn(lhs)}, None{}, g)(st2),
+                        st2 => K.err(KV, ctx, ExS{"a declared constructor (" ++ S.name.key(h.adt.k(tw)) ++ " declares " ++ cr.names(cs) ++ ")"}, Some{ExH{H.HCtr{k, xs, s}}}, s, Some{lhs.dn(lhs)}, None{}, 0)(st2))))(st),
+                  st => (do K<KV>:
+                    K.nop()
+                    +fam : Maybe<&2, String> = fam.of(ct, k)
+                    K.err(KV, ctx, ExH{ty}, Some{fam.obs(fam, s)}, s, Some{lhs.dn(lhs)}, dt.note(fam, dt.find(bk, k)), g))(st)))(st))
         # check-lit
         case H.HNat{+v, +s}:
           ck.go(p, JLit{"Nat", H.HNat{v, s}, lhs, qt, ty, g, ctx, d})

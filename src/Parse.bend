@@ -1874,8 +1874,9 @@ def ps.go(+fuel: Nat, j: PJ) -> L.P(X.PV):
             return X.PvU{})(st),
           st => (do L.P<X.PV>:
             b : X.PV <- ps.go(p, PjBody{0})
-            t : C.Tm <- F.flatten(X.pv.b(b), X.tele.vars(te))
-            v : C.Tm <- X.P.norm(t)
+            +bd : C.Body = X.pv.b(b)
+            t : C.Tm <- F.flatten(bd, X.tele.vars(te))
+            v : C.Tm <- X.P.norm.by(H.body.ops(bd), t)
             P.set_tld(k, C.TlDef{X.tele.len(te), x, True{}, False{}, False{}})
             P.decl(C.DDef{k, X.tele.len(te), x, T, Some{v}, u, Nil{}, False{}, islaw})
             return X.PvU{})(st))
