@@ -1259,6 +1259,35 @@ def js.next.lo(xs: List<&2, U32>) -> Bool:
     case Nil{}:
       False{}
 
+# a unit as JSON.stringify writes it: its escape, \u for u (a control or
+# lone surrogate), else itself; one branch is built (Bool.pick built the
+# \u form of every unit three times over)
+def js.esc.u(u: Bool, +c: U32) -> String:
+  match u:
+    case True{}:
+      js.u(c)
+    case False{}:
+      T.str([c])
+
+def js.esc.at(+c: U32, u: Bool) -> String:
+  match c:
+    case 34:
+      "\\\""
+    case 92:
+      "\\\\"
+    case 8:
+      "\\b"
+    case 12:
+      "\\f"
+    case 10:
+      "\\n"
+    case 13:
+      "\\r"
+    case 9:
+      "\\t"
+    case _:
+      js.esc.u(u, c)
+
 def js.esc(xs: List<&2, U32>, prev: Bool) -> String:
   match xs:
     case Nil{}:
@@ -1267,16 +1296,7 @@ def js.esc(xs: List<&2, U32>, prev: Bool) -> String:
       +hi = Bool.and(U32.is_ge(c, 55296), U32.is_lt(c, 56320))
       +lo = Bool.and(U32.is_ge(c, 56320), U32.is_lt(c, 57344))
       +nlo = js.next.lo(t)
-      Bool.pick(String, U32.is_eq(c, 34), "\\\"",
-      Bool.pick(String, U32.is_eq(c, 92), "\\\\",
-      Bool.pick(String, U32.is_eq(c, 8), "\\b",
-      Bool.pick(String, U32.is_eq(c, 12), "\\f",
-      Bool.pick(String, U32.is_eq(c, 10), "\\n",
-      Bool.pick(String, U32.is_eq(c, 13), "\\r",
-      Bool.pick(String, U32.is_eq(c, 9), "\\t",
-      Bool.pick(String, U32.is_lt(c, 32), js.u(c),
-      Bool.pick(String, Bool.and(hi, Bool.not(nlo)), js.u(c),
-      Bool.pick(String, Bool.and(lo, Bool.not(prev)), js.u(c), T.str([c])))))))))))
+      js.esc.at(c, Bool.or(U32.is_lt(c, 32), Bool.or(Bool.and(hi, Bool.not(nlo)), Bool.and(lo, Bool.not(prev)))))
       ++ js.esc(t, Bool.and(hi, nlo))
 
 def js.str(s: String) -> String:

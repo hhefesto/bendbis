@@ -160,16 +160,9 @@ def base.cls(+c: U32) -> Nat:
 # a name's role at a term's head: 0-7 the keywords that head a form or a
 # refusal (Type Data Quant Kind do match case return), 8 another keyword,
 # 9 none
+# (Lex's kw.class, by the first unit)
 def kw.cls(+k: String) -> Nat:
-  Bool.pick(Nat, String.eq(k, "Type"), 0n,
-  Bool.pick(Nat, String.eq(k, "Data"), 1n,
-  Bool.pick(Nat, String.eq(k, "Quant"), 2n,
-  Bool.pick(Nat, String.eq(k, "Kind"), 3n,
-  Bool.pick(Nat, String.eq(k, "do"), 4n,
-  Bool.pick(Nat, String.eq(k, "match"), 5n,
-  Bool.pick(Nat, String.eq(k, "case"), 6n,
-  Bool.pick(Nat, String.eq(k, "return"), 7n,
-  Bool.pick(Nat, L.is_keyword(k), 8n, 9n)))))))))
+  L.kw.class(k)
 
 # \S on a unit (NONE, past the start, is no unit)
 def non.space(+c: U32) -> Bool:
@@ -197,19 +190,59 @@ def ops.fires(+o: Nat, +lvl: U32, +gl: Bool, +nx: U32) -> Bool:
     Bool.and(Bool.or(Nat.is_eq(o, 19n), Nat.is_eq(o, 18n)), Bool.or(U32.is_eq(nx, 62), T.is_head(nx)))),
     Bool.or(Bool.and(op.gt(o), gl), Bool.and(Nat.is_eq(o, 22n), Bool.not(T.is_space(nx))))))
 
+def ops.fire(z: Bool, +o: Nat, +gl: Bool) -> Op:
+  match z:
+    case True{}:
+      OpInfix{o, gl}
+    case False{}:
+      OpStop{}
+
+# o 23 is no operator (op.find's miss); fires is asked only of one
+def ops.infix.o(none: Bool, +o: Nat, +xs: List<&2, U32>, +lvl: U32, +gl: Bool) -> Op:
+  match none:
+    case True{}:
+      OpStop{}
+    case False{}:
+      ops.fire(ops.fires(o, lvl, gl, T.at(xs, U32.from_nat(T.len(R.op.text(o))))), o, gl)
+
 def ops.infix(+xs: List<&2, U32>, +lvl: U32, +gl: Bool) -> Op:
   +o = R.op.find(xs)
-  Bool.pick(Op, Bool.and(Bool.not(Nat.is_eq(o, 23n)), ops.fires(o, lvl, gl, T.at(xs, U32.from_nat(T.len(R.op.text(o)))))), OpInfix{o, gl}, OpStop{})
+  ops.infix.o(Nat.is_eq(o, 23n), o, xs, lvl, gl)
+
+# a newline before ( or [ stops; else o
+def ops.nl(nl: Bool, o: Op) -> Op:
+  match nl:
+    case True{}:
+      OpStop{}
+    case False{}:
+      o
+
+def ops.lam(z: Bool, +c: L.Cur, +xs: List<&2, U32>, +lvl: U32) -> Op:
+  match z:
+    case True{}:
+      OpLam{}
+    case False{}:
+      ops.infix(xs, lvl, non.space(L.cur.prev(c)))
+
+# by the next units, each case asked only when the ones before it fail
+# (Bool.pick's arguments are all evaluated: the infix search ran on every
+# call): a newline before ( or [ stops, ( or !( a call, [ an index, => at
+# level 1 a lambda, else an infix operator if one fires
+def ops.next.at(+xs: List<&2, U32>, +c: L.Cur, +lvl: U32) -> Op:
+  match xs:
+    case Con{40, t}:
+      ops.nl(L.cur.nl(c), OpCall{})
+    case Con{91, t}:
+      ops.nl(L.cur.nl(c), OpIndex{})
+    case Con{33, Con{40, t}}:
+      OpCall{}
+    case Con{61, Con{62, t}}:
+      ops.lam(U32.is_eq(lvl, 1), c, xs, lvl)
+    case _:
+      ops.infix(xs, lvl, non.space(L.cur.prev(c)))
 
 def ops.next(+c: L.Cur, +lvl: U32) -> Op:
-  +xs = L.cur.rest(c)
-  +nl = L.cur.nl(c)
-  +gl = non.space(L.cur.prev(c))
-  Bool.pick(Op, Bool.and(nl, Bool.or(T.prefix(xs, [40]), T.prefix(xs, [91]))), OpStop{},
-  Bool.pick(Op, Bool.or(T.prefix(xs, [40]), T.prefix(xs, [33, 40])), OpCall{},
-  Bool.pick(Op, T.prefix(xs, [91]), OpIndex{},
-  Bool.pick(Op, Bool.and(U32.is_eq(lvl, 1), T.prefix(xs, [61, 62])), OpLam{},
-    ops.infix(xs, lvl, gl)))))
+  ops.next.at(L.cur.rest(c), c, lvl)
 
 # /^(->|[&|](?![&|]))/ on the next two units
 def tyarg.bad(xs: List<&2, U32>) -> Bool:

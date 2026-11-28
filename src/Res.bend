@@ -52,12 +52,19 @@ def P.col_at(+n: U32) -> L.P(U32):
 # Names
 # -----
 
-def al.get(al: List<&2, L.Al>, +a: String) -> Maybe<&2, String>:
-  match al:
-    case Nil{}:
+# the first alias named a: the last one's test a parameter, so the rest of
+# the list is asked only on a miss (as sc.find.go)
+def al.get.go(al: List<&2, L.Al>, +a: String, hit: Bool, ns: String) -> Maybe<&2, String>:
+  match al hit:
+    case _ True{}:
+      Some{ns}
+    case Nil{} False{}:
       None{}
-    case Con{L.Al{x, ns}, t}:
-      Maybe.or(&2, String, Bool.pick(Maybe<&2, String>, String.eq(x, a), Some{ns}, None{}), al.get(t, a))
+    case Con{L.Al{x, ns2}, t} False{}:
+      al.get.go(t, a, String.eq(x, a), ns2)
+
+def al.get(al: List<&2, L.Al>, +a: String) -> Maybe<&2, String>:
+  al.get.go(al, a, False{}, "")
 
 def al.has(+al: List<&2, L.Al>, a: String) -> Bool:
   Maybe.is_some(&2, String, al.get(al, a))
@@ -530,12 +537,16 @@ def op.trials(c: U32) -> List<&2, Nat>:
       Nil{}
 
 # the operator at the head of xs, 23n when there is none
-def op.find.go(os: List<&2, Nat>, +xs: List<&2, U32>) -> Nat:
-  match os:
-    case Nil{}:
+# (the first trial whose text is a prefix: the last one's test a
+# parameter, so the rest are asked only on a miss)
+def op.find.go(os: List<&2, Nat>, +xs: List<&2, U32>, hit: Bool, +o: Nat) -> Nat:
+  match os hit:
+    case _ True{}:
+      o
+    case Nil{} False{}:
       23n
-    case Con{+o, t}:
-      Bool.pick(Nat, T.prefix(xs, op.text(o)), o, op.find.go(t, xs))
+    case Con{+o2, t} False{}:
+      op.find.go(t, xs, T.prefix(xs, op.text(o2)), o2)
 
 def op.find(+xs: List<&2, U32>) -> Nat:
-  op.find.go(op.trials(L.cur.peek.go(xs)), xs)
+  op.find.go(op.trials(L.cur.peek.go(xs)), xs, False{}, 23n)

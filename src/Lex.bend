@@ -577,6 +577,7 @@ def P.word(+w: String) -> P(Bool):
 def KEYWORDS() -> List<&2, String>:
   ["def", "type", "law", "match", "case", "do", "return", "for", "exs", "where", "is", "import", "Type", "Data", "Kind", "Quant"]
 
+# KEYWORDS's membership as a fold (the reference kw.class is held to)
 def is_keyword.go(ks: List<&2, String>, +k: String) -> Bool:
   match ks:
     case Nil{}:
@@ -584,8 +585,75 @@ def is_keyword.go(ks: List<&2, String>, +k: String) -> Bool:
     case Con{h, t}:
       Bool.or(String.eq(h, k), is_keyword.go(t, k))
 
+# A name's keyword class: 0-7 the keywords that head a form or a refusal
+# (Type Data Quant Kind do match case return), 8 another keyword (def type
+# law for exs where is import), 9 none. By the name's first unit, so it is
+# held against the one or two keywords it could be, not all sixteen: Bend's
+# arguments are evaluated before the call (Bool.or and Bool.pick are
+# functions), so is_keyword.go builds the list and runs every String.eq.
+def kw.is(z: Bool, n: Nat) -> Nat:
+  match z:
+    case True{}:
+      n
+    case False{}:
+      9n
+
+def kw.d(z: Bool, +k: String) -> Nat:
+  match z:
+    case True{}:
+      4n
+    case False{}:
+      kw.is(String.eq(k, "def"), 8n)
+
+def kw.i(z: Bool, +k: String) -> Nat:
+  match z:
+    case True{}:
+      8n
+    case False{}:
+      kw.is(String.eq(k, "import"), 8n)
+
+def kw.class.at(+c: U32, +k: String) -> Nat:
+  match c:
+    case 84:
+      kw.is(String.eq(k, "Type"), 0n)
+    case 68:
+      kw.is(String.eq(k, "Data"), 1n)
+    case 81:
+      kw.is(String.eq(k, "Quant"), 2n)
+    case 75:
+      kw.is(String.eq(k, "Kind"), 3n)
+    case 100:
+      kw.d(String.eq(k, "do"), k)
+    case 109:
+      kw.is(String.eq(k, "match"), 5n)
+    case 99:
+      kw.is(String.eq(k, "case"), 6n)
+    case 114:
+      kw.is(String.eq(k, "return"), 7n)
+    case 116:
+      kw.is(String.eq(k, "type"), 8n)
+    case 108:
+      kw.is(String.eq(k, "law"), 8n)
+    case 102:
+      kw.is(String.eq(k, "for"), 8n)
+    case 101:
+      kw.is(String.eq(k, "exs"), 8n)
+    case 119:
+      kw.is(String.eq(k, "where"), 8n)
+    case 105:
+      kw.i(String.eq(k, "is"), k)
+    case _:
+      9n
+
+def kw.class(+k: String) -> Nat:
+  match k:
+    case SCon{Chr{+c}, t}:
+      kw.class.at(c, k)
+    case _:
+      9n
+
 def is_keyword(k: String) -> Bool:
-  is_keyword.go(KEYWORDS(), k)
+  Bool.not(Nat.is_eq(kw.class(k), 9n))
 
 # a dot not followed by a letter or _ (the lexeme's /\.(?![A-Za-z_])/)
 def bad_dot.next(t: List<&2, U32>) -> Bool:
