@@ -22,6 +22,156 @@ output (measured, olimpo, 2026-11-20).
    trainer's bulk ops become Bend programs that bendbis compiles to the CPU
    and the GPU fast enough to replace `bulk.c` and cuBLAS (milestones 3-6).
 
+## bend and bendbis: the adjunction (the user's goal, 2026-11-27)
+
+The user, 11-27: "apply what you've learned in cata to ~/src/bendbis. I
+want you to apply the adjunction and all the levels of functor (meaning
+homomorphism et al). The functor should go from regular bend to bendbis
+(our bend version implemented in bend) and the other functor should go
+from bendbis to bend. This should be useful to get a good implementation
+of bend in bend. I want correctness and more speed than regular bend. I
+would like bendbis to be a good fit for ~/src/ana, so things like 64 bit
+floats (the one that's missing)." And, the same day: "Any addition to
+regular bend, like U64 should be very well delimited by laws."
+
+**The two categories.** `Bend`: upstream's programs (books) and functions,
+with the meaning upstream gives them (its checker's verdict, its run).
+`Bendbis`: bend's programs plus bendbis's additions (F64 first), with the
+meaning bendbis gives them.
+
+**F : Bend -> Bendbis, the inclusion.** A program of upstream's is a
+program of bendbis's, unchanged. What F claims is bendbis's correctness:
+bendbis gives F(p) the meaning upstream gives p. The gates (milestones 1
+and 2: 1,880 + 28 + 253 files, byte for byte) are F at the level of the
+checker's verdicts; milestone 4 adds runs. F is compositional over a
+book's files (a file's check is fixed by it and its imports' checks),
+which is what lets bendbis keep checks under the digest of a file and its
+imports, as cata's cache does (`CATA_CACHE`): a speed lead, planned.
+
+**G : Bendbis -> Bend, the lowering.** Every addition is replaced by its
+definition in plain Bend: an F64 by `lib/F64.bend` (Base only, no
+@unsafe), so a bendbis program runs on upstream bend before bendbis runs
+anything itself, and every addition has a meaning in Bend that a law can
+name. The levels, as in cata:
+
+1. *Homomorphism.* G is a fold over the term algebra: the identity on
+   every form upstream has, an addition's leaf (an F64 literal, an `F64.op`
+   reference, the type) to the library's term. So G commutes with every
+   constructor, and with substitution.
+2. *Functor.* G keeps identities and composition (G(g . f) = G(g) . G(f)),
+   from 1; and files: G of an import is the import of G.
+3. *Naturality.* For F64, phi: native F64 -> library F64 is the identity on
+   the bits (both are `F64{hi: U32, lo: U32}`), so a square is a law:
+   native `op(x)` == library `op(x)`, for each operation.
+4. *Adjunction F -| G.* The unit eta: P -> G(F(P)) is the identity (an
+   upstream program has no addition; gate: G leaves every one of the
+   2,161 files unchanged, byte for byte). The counit eps: F(G(Q)) -> Q is
+   the squares of 3: Q's native additions agree with their definitions.
+   The triangles: G(eps) . eta(G) = id (G is idempotent: G(G(Q)) = G(Q),
+   a gate) and eps(F) . F(eta) = id (eps is the identity on an upstream
+   program).
+
+Since eps is an isomorphism (F64's definition is exact, not an
+approximation), the adjunction is an equivalence of meanings: what the
+additions change is cost (a native F64 is the machine's double; its
+definition is big-natural arithmetic) and convenience (literals, names).
+
+**Every addition, delimited by laws** (the user, 11-27). An addition comes
+with four things, F64's the first:
+
+1. its definition in plain Bend: `lib/F64.bend` (IEEE 754 binary64, round
+   to nearest ties to even; add, sub, mul, div, sqrt, neg, abs, the
+   comparisons, from_u32, from_f32, to_f32; a NaN result is the quiet NaN
+   0x7FF8000000000000);
+2. its specification as its standard states it, written to be read:
+   `lib/SPEC.bend` (a finite value is its exact dyadic; a result is the
+   exact real rounded by a binary search over the positive bit patterns,
+   the midpoint compared exactly, ties to even, past the greatest finite
+   value plus half its ulp infinity; zeros, infinities and NaN by IEEE
+   754's tables). It shares only the big naturals with F64.bend; its
+   rounding is another algorithm (search and compare, not shift, round
+   bit and sticky bit);
+3. laws: `lib/LAWS.bend`, proven (`bend lib/LAWS.bend --verdict`: ALL
+   PROOFS CHECK, 21 s): for every input sub = add of the negation, is_ne =
+   not is_eq, neg(neg(x)) = x, abs(abs(x)) = abs(x) (with Word and U32
+   lemmas: xor twice, and idempotent), and IEEE 754's rule table at 23
+   named inputs, each proven by computing it (signed zeros, ties to even
+   both ways, overflow, gradual underflow, an underflow tie, division by
+   zero, NaN's cases, -0 = +0, sqrt's). `lib/OPEN.bend`: the laws that
+   delimit each operation, op(a, b) == SPEC's op(a, b) for every input,
+   stated and not yet proven (8 TODOs);
+4. gates against outside oracles, each with mutants:
+   `lib/tests/run.zsh BEND N OUT` holds F64.bend against the machine's
+   double (lib/tests/Oracle.hs: GHC's Double, x86-64 SSE2) on IEEE's
+   special values (every pair of 30) and N pseudo-random cases in three
+   sections (random bits; exponents near each other, for cancellation and
+   every alignment; exponents at the range's ends, for overflow,
+   underflow and subnormals, and F32's range for to_f32);
+   `lib/tests/spec.bend N` holds OPEN.bend's laws on the same kinds of
+   inputs.
+
+Measured 2026-11-27 (olimpo, upstream bend 0e2f38f7):
+
+| gate | cases | differ |
+|---|---|---|
+| F64.bend against the double, N = 200,000 | 5,606,360 lines | 0 |
+| OPEN.bend's laws (F64.bend against SPEC.bend), N = 20,000 | 488,192 checks | 0 |
+| mutant: ties away from zero, not to even | 62,360 lines; 12,992 checks | 122; 78 |
+| mutant: the far operand stood in for from 52 bits apart, not 60 | 62,360 lines | 106 |
+| mutant: the quotient one bit short | 62,360 lines | 4,993 |
+| mutant law: add.tie_down claims 1 + 2^-52 | `--check-only` | refused |
+
+**What ana needs that upstream Bend has but does not delimit** (11-27,
+ana d4cafc4, bend 2.0.39):
+
+1. *F32.* Base's F32 operations are laws with a type and nothing else
+   (`law F32.add: for a: F32, for b: F32, F32`: "base's are native"),
+   and ana calls them about a thousand times (F32.add 170, mul 141, div
+   101, show 88, from_nat 69, sub 63, is_eq 52, neg 37, max 29, abs 27,
+   exp 25, sqrt 19, log 16, is_le 16, is_lt 12, pow 7, ...). The checker
+   does not compute them (a native is opaque to it); the compiler does
+   (comp.ts 170-200): add, sub, mul and div as C float arithmetic, or in
+   JS as the double's result rounded to F32 (`Math.fround`), both the
+   correctly rounded F32 result (53 >= 2 * 24 + 2), and sqrt as the
+   double's sqrt rounded to F32, correctly rounded too; so SPEC.bend's
+   rounding at F32's format (already there for to_f32) states those five
+   exactly. exp, log, pow, sin, cos, tanh and the rest are the double libm
+   of the executor (C's, the JS engine's, CUDA's on the GPU, where ana's
+   gate already saw expf differ) rounded to F32: no law holds for them
+   today; delimiting them needs a definition (correctly rounded, through
+   F64) that every executor computes.
+2. *Foreign effects.* ana's `bend/effs/bulk.c` (2,822 lines) behind 9
+   foreign defs in `bend/BulkIo.bend` (bk.gemm, bk.mm, bk.mm.q, bk.einsum,
+   bk.einsum.q, bk.einsum.seq.q, bk.sync, bk.read_f32be,
+   bk.write_f32be), and `wall.c` (the clock). upstream counts each as a
+   promise (SOME PROOFS FAIL), and ana's tests hold the products and
+   einsums bit for bit against Bend references (Bulk.bend's gemm,
+   einsum.ref) on cases. The law to state for each: bk.op(x) ==
+   ref.op(x), with the reference in plain Bend.
+3. *The fork.* `~/src/bend2` ft-kernels (977a2d98) adds 501 lines of
+   Base (File.read_f32be and write_f32be, ArrayView, Array.gemm, the
+   einsum machinery Ex, Ix, View, Es with Array.einsum.ref and .prim,
+   Array.mm) and 2,365 lines of comp.ts kernels. ana no longer pins it
+   (upstream 2.0.39 and bulk.c instead); its content lives on in bulk.c.
+4. *Upstream's own unchecked parts* ana leans on: Base's @unsafe
+   Array.fork (Bang/Gemm.bend and Bang/GlaScan.bend) and `!`.
+
+U64 exists nowhere yet; when an addition is made it gets the same four
+things as F64, before any program uses it.
+
+**Next, in order.** (a) F64 native in bendbis: `import F64` (upstream
+refuses a bare import other than Base, so F stays an inclusion), the
+literal `1.5d`, the checker computing F64's operations with F64.bend's
+code, G as `src/Lower.bend`, and the gates: G is the identity on the
+2,161 files, G(G(Q)) = G(Q), and Q's checks against G(Q)'s under
+upstream. (b) F32 delimited: SPEC's F32 operations, and laws stating
+Base's natives equal them: axioms to upstream (its natives are opaque),
+held by running its C and JS targets against SPEC on inputs, and theorems
+in bendbis once its F32 natives are F64.bend's code. (c) The proofs of
+OPEN.bend, through the exact value: big naturals' arithmetic against
+Nat's, then rounding. (d) Speed: DESIGN's
+R1-R4 and the per-file cache that F's compositionality allows.
+
 ## Architecture: bendbis's modules over bend.ts
 
 bend.ts holds terms in two forms: an `LTerm` (first order, de Bruijn-ish
