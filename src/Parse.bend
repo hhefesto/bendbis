@@ -483,11 +483,24 @@ def ns.go(+fuel: Nat, j: NJ) -> L.P(C.Tm):
 def ns.of(tm: C.Tm, h: C.Tm) -> L.P(C.Tm):
   ns.go(4294967295n, NjT{tm, h})
 
+# R.P.span(beg), then R.P.var(k, s), its term the answer (the state passed
+# by hand, no bind)
+def name.var.t(r: L.R<C.Tm>) -> L.R<X.PV>:
+  match r:
+    case L.ROk{t, st}:
+      L.ROk{X.PvT{t}, st}
+    case L.RErr{e}:
+      L.RErr{e}
+
+def name.var.sp(+k: String, r: L.R<C.Sp>) -> L.R<X.PV>:
+  match r:
+    case L.ROk{s, st}:
+      name.var.t(R.P.var.go(k, s, st))
+    case L.RErr{e}:
+      L.RErr{e}
+
 def name.var(+k: String, beg: U32) -> L.P(X.PV):
-  do L.P<X.PV>:
-    s : C.Sp <- R.P.span(beg)
-    t : C.Tm <- R.P.var(k, s)
-    return X.PvT{t}
+  st => name.var.sp(k, R.P.span.go(beg, st))
 
 def num.len(nm: X.Nm) -> Nat:
   match nm:
@@ -1151,8 +1164,7 @@ def ps.go(+fuel: Nat, j: PJ) -> L.P(X.PV):
     # parse_term(p, lvl): lvl is bend.ts's plus one
     case 1n+p PjTerm{+lvl}:
       do L.P<X.PV>:
-        L.P.skip()
-        +beg : U32 <- L.P.pos()
+        +beg : U32 <- L.P.skip_pos()
         b : X.PV <- ps.go(p, PjBase{beg})
         s : C.Sp <- R.P.span(beg)
         +t : C.Tm = C.tm.or_sp(X.pv.t(b), s)
@@ -1443,8 +1455,7 @@ def ps.go(+fuel: Nat, j: PJ) -> L.P(X.PV):
     # parse_term_do_stmt(p, m, ts, col)
     case 1n+p PjDo{+m, +ts, +col}:
       do L.P<X.PV>:
-        L.P.skip()
-        +beg : U32 <- L.P.pos()
+        +beg : U32 <- L.P.skip_pos()
         r : Bool <- L.P.word("return")
         X.ps.if(r,
           st => (do L.P<X.PV>:
@@ -1627,8 +1638,7 @@ def ps.go(+fuel: Nat, j: PJ) -> L.P(X.PV):
     # parse_body(p, col)
     case 1n+p PjBody{+col}:
       do L.P<X.PV>:
-        L.P.skip()
-        +beg : U32 <- L.P.pos()
+        +beg : U32 <- L.P.skip_pos()
         +bcol : U32 <- L.P.col()
         m : Bool <- L.P.word("match")
         X.ps.if(m, st => ps.go(p, PjMatch{col, beg}, st), st => ps.go(p, PjLocal{col, beg, bcol}, st))
@@ -1652,8 +1662,7 @@ def ps.go(+fuel: Nat, j: PJ) -> L.P(X.PV):
       do L.P<X.PV>:
         +rcol : U32 <- L.P.col()
         _ : Bool <- L.P.word("case")
-        L.P.skip()
-        +qbeg : U32 <- L.P.pos()
+        +qbeg : U32 <- L.P.skip_pos()
         qv : X.PV <- ps.go(p, PjTerms{Nil{}})
         +qs : List<&2, C.Tm> = X.pv.ts(qv)
         +e : L.Env <- L.P.env()

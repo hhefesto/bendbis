@@ -494,42 +494,84 @@ def P.err(-A: Type, exp: String, obs: Maybe<&2, String>, s: C.Sp) -> P(A):
 # Lexing
 # ------
 
+# The cursor's readers pass the state by hand: the state's own Cur (and
+# its rest's first cell) matched and built again, no bind and no shared
+# copy of the cursor (P.cur's, whose reads then bump every field)
+def P.peek.go(st: St) -> R<U32>:
+  match st:
+    case St{Cur{Nil{}, pos, col, nl, prev}, e}:
+      ROk{C.NONE(), St{Cur{Nil{}, pos, col, nl, prev}, e}}
+    case St{Cur{Con{+h, t}, pos, col, nl, prev}, e}:
+      ROk{h, St{Cur{Con{h, t}, pos, col, nl, prev}, e}}
+
 def P.peek() -> P(U32):
-  do P<U32>:
-    c : Cur <- P.cur()
-    return cur.peek(c)
+  st => P.peek.go(st)
+
+def P.ahead.go(n: U32, st: St) -> R<U32>:
+  match st:
+    case St{Cur{+rest, pos, col, nl, prev}, e}:
+      ROk{T.at(rest, n), St{Cur{rest, pos, col, nl, prev}, e}}
 
 def P.ahead(n: U32) -> P(U32):
-  do P<U32>:
-    c : Cur <- P.cur()
-    return cur.ahead(c, n)
+  st => P.ahead.go(n, st)
+
+def P.pos.go(st: St) -> R<U32>:
+  match st:
+    case St{Cur{rest, +pos, col, nl, prev}, e}:
+      ROk{pos, St{Cur{rest, pos, col, nl, prev}, e}}
 
 def P.pos() -> P(U32):
-  do P<U32>:
-    c : Cur <- P.cur()
-    return cur.pos(c)
+  st => P.pos.go(st)
+
+def P.col.go(st: St) -> R<U32>:
+  match st:
+    case St{Cur{rest, pos, +col, nl, prev}, e}:
+      ROk{col, St{Cur{rest, pos, col, nl, prev}, e}}
 
 def P.col() -> P(U32):
-  do P<U32>:
-    c : Cur <- P.cur()
-    return cur.col(c)
+  st => P.col.go(st)
+
+def P.nl.go(st: St) -> R<Bool>:
+  match st:
+    case St{Cur{rest, pos, col, +nl, prev}, e}:
+      ROk{nl, St{Cur{rest, pos, col, nl, prev}, e}}
 
 def P.nl() -> P(Bool):
-  do P<Bool>:
-    c : Cur <- P.cur()
-    return cur.nl(c)
+  st => P.nl.go(st)
+
+def P.bump.go(st: St) -> R<Unit>:
+  match st:
+    case St{c, e}:
+      ROk{Unit{}, St{cur.bump(c), e}}
 
 def P.bump() -> P(Unit):
-  P.mod_cur(cur.bump)
+  st => P.bump.go(st)
+
+def P.skip.go(st: St) -> R<Unit>:
+  match st:
+    case St{c, e}:
+      ROk{Unit{}, St{cur.skip(c), e}}
 
 def P.skip() -> P(Unit):
-  P.mod_cur(cur.skip)
+  st => P.skip.go(st)
+
+# P.skip() then P.pos(), one step
+def P.skip_pos.go(st: St) -> R<U32>:
+  match st:
+    case St{c, e}:
+      P.pos.go(St{cur.skip(c), e})
+
+def P.skip_pos() -> P(U32):
+  st => P.skip_pos.go(st)
 
 # parse_at(p, s): the units of s are next
+def P.at.go(+s: List<&2, U32>, st: St) -> R<Bool>:
+  match st:
+    case St{Cur{+rest, pos, col, nl, prev}, e}:
+      ROk{T.prefix(rest, s), St{Cur{rest, pos, col, nl, prev}, e}}
+
 def P.at(s: List<&2, U32>) -> P(Bool):
-  do P<Bool>:
-    c : Cur <- P.cur()
-    return T.prefix(cur.rest(c), s)
+  st => P.at.go(s, st)
 
 def take.if(z: Bool, n: Nat) -> P(Bool):
   match z:
@@ -541,10 +583,20 @@ def take.if(z: Bool, n: Nat) -> P(Bool):
       P.pure(Bool, False{})
 
 # parse_take(p, s)
+def take.at(z: Bool, n: Nat, st: St) -> R<Bool>:
+  match z st:
+    case True{} St{c, e}:
+      ROk{True{}, St{cur.adv(n, c), e}}
+    case False{} st:
+      ROk{False{}, st}
+
+def P.take.go(+s: List<&2, U32>, st: St) -> R<Bool>:
+  match st:
+    case St{Cur{+rest, pos, col, nl, prev}, e}:
+      take.at(T.prefix(rest, s), T.len(s), St{Cur{rest, pos, col, nl, prev}, e})
+
 def P.take(+s: List<&2, U32>) -> P(Bool):
-  do P<Bool>:
-    c : Cur <- P.cur()
-    take.if(T.prefix(cur.rest(c), s), T.len(s))
+  st => P.take.go(s, st)
 
 def eat.if(z: Bool, s: String) -> P(Unit):
   match z:
@@ -692,12 +744,28 @@ def lexeme.go(z: Bool, +c: Cur) -> P(String):
         P.mod_cur(cur.adv(n))
         lexeme.fin(T.take(cur.rest(c), n), cur.pos(c))
 
-# parse_lexeme
+# parse_lexeme (the state passed by hand: lexeme.go's reads of the cursor
+# after the skip, its advance, then lexeme.fin's check in that state)
+def lexeme.at(z: Bool, +rest: List<&2, U32>, +pos: U32, c: Cur, e: Env) -> R<String>:
+  match z:
+    case False{}:
+      P.fail(String, "a name")(St{c, e})
+    case True{}:
+      +n = name.run(rest)
+      lexeme.fin(T.take(rest, n), pos)(St{cur.adv(n, c), e})
+
+def lexeme.st(c: Cur, e: Env) -> R<String>:
+  match c:
+    case Cur{+rest, +pos, col, nl, prev}:
+      lexeme.at(T.is_head(cur.peek.go(rest)), rest, pos, Cur{rest, pos, col, nl, prev}, e)
+
+def P.lexeme.go(st: St) -> R<String>:
+  match st:
+    case St{c, e}:
+      lexeme.st(cur.skip(c), e)
+
 def P.lexeme() -> P(String):
-  do P<String>:
-    P.skip()
-    +c : Cur <- P.cur()
-    lexeme.go(T.is_head(cur.peek(c)), c)
+  st => P.lexeme.go(st)
 
 def name.check(z: Bool, +k: String) -> P(String):
   match z:

@@ -15,16 +15,23 @@ import ./Lex.bend as L
 # -----------------
 
 # parse_span(p, beg): beg up to pos, in this file
+# the state passed by hand (its own Cur and Env matched and built again:
+# no bind, no shared copy whose field reads bump the other ten)
+def P.span.go(+beg: U32, st: L.St) -> L.R<C.Sp>:
+  match st:
+    case L.St{L.Cur{rest, +pos, col, nl, prev}, L.Env{txt, +fid, ns, al, dir, frs, sc, dep, ann, bk, ds}}:
+      L.ROk{C.Sp{fid, beg, pos}, L.St{L.Cur{rest, pos, col, nl, prev}, L.Env{txt, fid, ns, al, dir, frs, sc, dep, ann, bk, ds}}}
+
 def P.span(+beg: U32) -> L.P(C.Sp):
-  do L.P<C.Sp>:
-    c : L.Cur <- L.P.cur()
-    e : L.Env <- L.P.env()
-    return C.Sp{L.env.fid(e), beg, L.cur.pos(c)}
+  st => P.span.go(beg, st)
+
+def P.span2.go(+beg: U32, +end: U32, st: L.St) -> L.R<C.Sp>:
+  match st:
+    case L.St{c, L.Env{txt, +fid, ns, al, dir, frs, sc, dep, ann, bk, ds}}:
+      L.ROk{C.Sp{fid, beg, end}, L.St{c, L.Env{txt, fid, ns, al, dir, frs, sc, dep, ann, bk, ds}}}
 
 def P.span2(+beg: U32, +end: U32) -> L.P(C.Sp):
-  do L.P<C.Sp>:
-    e : L.Env <- L.P.env()
-    return C.Sp{L.env.fid(e), beg, end}
+  st => P.span2.go(beg, end, st)
 
 # the source unit at offset n (4294967295 past the end)
 def P.char_at(+n: U32) -> L.P(U32):
@@ -70,12 +77,25 @@ def al.has(+al: List<&2, L.Al>, a: String) -> Bool:
   Maybe.is_some(&2, String, al.get(al, a))
 
 # parse_qual: ns:k, or k in the empty namespace
+# (a match, not Bool.pick: only the arm taken is built, and tab.has reads
+# only the table asked, not both)
+def qual.at(z: Bool, +ns: String, +k: String) -> String:
+  match z:
+    case True{}:
+      k
+    case False{}:
+      ns ++ ":" ++ k
+
 def qual(+ns: String, +k: String) -> String:
-  Bool.pick(String, String.is_empty(ns), k, ns ++ ":" ++ k)
+  qual.at(String.is_empty(ns), ns, k)
 
 # in(tab, k) for the tlds (t true) or the ctrs
 def tab.has(+bk: L.Bk, t: Bool, +k: String) -> Bool:
-  Bool.pick(Bool, t, L.bk.has_tld(bk, k), L.bk.has_ctr(bk, k))
+  match t:
+    case True{}:
+      L.bk.has_tld(bk, k)
+    case False{}:
+      L.bk.has_ctr(bk, k)
 
 # q in tab || !(k in tab) ? q : k, k looked up only when q is not in tab
 def reso.pick.k(z: Bool, q: String, k: String) -> String:
@@ -111,11 +131,33 @@ def reso.alias(m: Maybe<&2, String>, +e: L.Env, +t: Bool, +k: String) -> L.P(Str
       +bk = L.env.bk(e)
       reso.amb(Bool.and(Bool.not(String.eq(q, k)), Bool.and(tab.has(bk, t, q), tab.has(bk, t, k))), q, k, reso.pick(bk, t, q, k))
 
-# parse_reso(p, k, t): an alias's name, the file's own, or Base's
+# the alias of k's prefix, asked only of a dotted k
+def reso.al(z: Bool, al: List<&2, L.Al>, +k: String) -> Maybe<&2, String>:
+  match z:
+    case True{}:
+      al.get(al, C.str.before_dot(k))
+    case False{}:
+      None{}
+
+# reso.alias with the Env's two tables it reads given apart
+def reso.alias.of(m: Maybe<&2, String>, +bk: L.Bk, +ns: String, +t: Bool, +k: String) -> L.P(String):
+  match m:
+    case None{}:
+      L.P.pure(String, reso.pick(bk, t, qual(ns, k), k))
+    case Some{ans}:
+      +q = ans ++ ":" ++ C.str.after_dot(k)
+      reso.amb(Bool.and(Bool.not(String.eq(q, k)), Bool.and(tab.has(bk, t, q), tab.has(bk, t, k))), q, k, reso.pick(bk, t, q, k))
+
+# parse_reso(p, k, t): an alias's name, the file's own, or Base's (the
+# state passed by hand: the aliases, the namespace and the tables read
+# from the state's own Env)
+def P.reso.go(+t: Bool, +k: String, st: L.St) -> L.R<String>:
+  match st:
+    case L.St{c, L.Env{txt, fid, +ns, +al, dir, frs, sc, dep, ann, +bk, ds}}:
+      reso.alias.of(reso.al(C.str.has_dot(k), al, k), bk, ns, t, k)(L.St{c, L.Env{txt, fid, ns, al, dir, frs, sc, dep, ann, bk, ds}})
+
 def P.reso(+t: Bool, +k: String) -> L.P(String):
-  do L.P<String>:
-    +e : L.Env <- L.P.env()
-    reso.alias(Bool.pick(Maybe<&2, String>, C.str.has_dot(k), al.get(L.env.al(e), C.str.before_dot(k)), None{}), e, t, k)
+  st => P.reso.go(t, k, st)
 
 def P.reso_t(k: String) -> L.P(String):
   P.reso(True{}, k)
@@ -123,11 +165,15 @@ def P.reso_t(k: String) -> L.P(String):
 def P.reso_c(k: String) -> L.P(String):
   P.reso(False{}, k)
 
-# parse_own(p, k, t): the file's own k, else Base's
+# parse_own(p, k, t): the file's own k, else Base's (the state passed by
+# hand, as P.reso)
+def P.own.go(+t: Bool, +k: String, st: L.St) -> L.R<String>:
+  match st:
+    case L.St{c, L.Env{txt, fid, +ns, al, dir, frs, sc, dep, ann, +bk, ds}}:
+      L.ROk{reso.pick(bk, t, qual(ns, k), k), L.St{c, L.Env{txt, fid, ns, al, dir, frs, sc, dep, ann, bk, ds}}}
+
 def P.own(+t: Bool, +k: String) -> L.P(String):
-  do L.P<String>:
-    +e : L.Env <- L.P.env()
-    return reso.pick(L.env.bk(e), t, qual(L.env.ns(e), k), k)
+  st => P.own.go(t, k, st)
 
 def P.own_t(k: String) -> L.P(String):
   P.own(True{}, k)
@@ -165,12 +211,15 @@ def open.push(z: Bool, k: String, i: U32, e: L.Env) -> L.Env:
     case False{}:
       L.env.push(k, i, e)
 
+# (the state passed by hand: the counter read and bumped in the state's
+# own Env, k pushed on its scope)
+def P.open.go(+k: String, st: L.St) -> L.R<U32>:
+  match st:
+    case L.St{c, L.Env{txt, fid, ns, al, dir, +frs, sc, dep, ann, bk, ds}}:
+      L.ROk{frs, L.St{c, open.push(String.eq(k, "_"), k, frs, L.Env{txt, fid, ns, al, dir, (frs + 1 : U32), sc, dep, ann, bk, ds})}}
+
 def P.open(+k: String) -> L.P(U32):
-  do L.P<U32>:
-    +e : L.Env <- L.P.env()
-    +i : U32 = L.env.frs(e)
-    L.P.set_env(open.push(String.eq(k, "_"), k, i, L.env.set_frs((i + 1 : U32), e)))
-    return i
+  st => P.open.go(k, st)
 
 def P.push(k: String, i: U32) -> L.P(Unit):
   L.P.mod_env(L.env.push(k, i))
@@ -184,12 +233,13 @@ def P.close(n: U32) -> L.P(Unit):
   L.P.mod_env(L.env.close(n))
 
 # p.frs++
+def P.fresh_index.go(st: L.St) -> L.R<U32>:
+  match st:
+    case L.St{c, L.Env{txt, fid, ns, al, dir, +frs, sc, dep, ann, bk, ds}}:
+      L.ROk{frs, L.St{c, L.Env{txt, fid, ns, al, dir, (frs + 1 : U32), sc, dep, ann, bk, ds}}}
+
 def P.fresh_index() -> L.P(U32):
-  do L.P<U32>:
-    +e : L.Env <- L.P.env()
-    +i : U32 = L.env.frs(e)
-    L.P.set_env(L.env.set_frs((i + 1 : U32), e))
-    return i
+  st => P.fresh_index.go(st)
 
 def var.free(k: String, s: C.Sp, q: String) -> L.P(C.Tm):
   do L.P<C.Tm>:
@@ -214,11 +264,15 @@ def var.at(z: Bool, +i: U32, +k: String, +s: C.Sp) -> L.P(C.Tm):
         +q : String <- P.reso_t(k)
         var.ref(C.str.has_dot(k), k, s, q)
 
+# the state passed by hand: the scope read from the state's own Env
+def P.var.go(+k: String, +s: C.Sp, st: L.St) -> L.R<C.Tm>:
+  match st:
+    case L.St{c, L.Env{txt, fid, ns, al, dir, frs, +sc, dep, ann, bk, ds}}:
+      +i = L.sc.find(sc, k)
+      var.at(U32.is_eq(i, C.NONE()), i, k, s)(L.St{c, L.Env{txt, fid, ns, al, dir, frs, sc, dep, ann, bk, ds}})
+
 def P.var(+k: String, +s: C.Sp) -> L.P(C.Tm):
-  do L.P<C.Tm>:
-    e : L.Env <- L.P.env()
-    +i : U32 = L.sc.find(L.env.sc(e), k)
-    var.at(U32.is_eq(i, C.NONE()), i, k, s)
+  st => P.var.go(k, s, st)
 
 # parse_call(p, k, xs, s)
 def P.call(k: String, xs: List<&2, C.Tm>, +s: C.Sp) -> L.P(C.Tm):
@@ -258,15 +312,22 @@ def P.fill(+k: String, xs: List<&2, C.Tm>, s: C.Sp) -> L.P(List<&2, C.Tm>):
     e : L.Env <- L.P.env()
     return fill.at(L.bk.tld(L.env.bk(e), k), xs, s)
 
+# the tables read from the state's own Env (the state passed by hand)
+def P.tld.go(+k: String, st: L.St) -> L.R<C.Tld>:
+  match st:
+    case L.St{c, L.Env{txt, fid, ns, al, dir, frs, sc, dep, ann, +bk, ds}}:
+      L.ROk{L.bk.tld(bk, k), L.St{c, L.Env{txt, fid, ns, al, dir, frs, sc, dep, ann, bk, ds}}}
+
 def P.tld(+k: String) -> L.P(C.Tld):
-  do L.P<C.Tld>:
-    e : L.Env <- L.P.env()
-    return L.bk.tld(L.env.bk(e), k)
+  st => P.tld.go(k, st)
+
+def P.ctr_n.go(+k: String, st: L.St) -> L.R<U32>:
+  match st:
+    case L.St{c, L.Env{txt, fid, ns, al, dir, frs, sc, dep, ann, +bk, ds}}:
+      L.ROk{L.bk.ctr(bk, k), L.St{c, L.Env{txt, fid, ns, al, dir, frs, sc, dep, ann, bk, ds}}}
 
 def P.ctr_n(+k: String) -> L.P(U32):
-  do L.P<U32>:
-    e : L.Env <- L.P.env()
-    return L.bk.ctr(L.env.bk(e), k)
+  st => P.ctr_n.go(k, st)
 
 def tld.is_adt(t: C.Tld) -> Bool:
   match t:

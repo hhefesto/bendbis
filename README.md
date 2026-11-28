@@ -66,24 +66,26 @@ value, and Base's U32 operations on literals run as natives (`DESIGN.md`,
 nothing reads ("Dead Subs", gate8), and the checker builds an error's
 message only when it reports it (gate9), and a def body's normal form is
 read in one walk and check-ctr's success path in one read (gate10,
-gate11). The adjunction's gates pass (1,880 + 28 + 253 files byte for
+gate11), and the parser's hot readers pass its state by hand (gate12 to
+gate14). The adjunction's gates pass (1,880 + 28 + 253 files byte for
 byte upstream's).
 
 | input | upstream | bendbis | bendbis / upstream |
 |---|---|---|---|
-| upstream's tests and base.bend (1,880, 12 at a time) | 1,091 s | 461 s | 0.42 |
-| ana's 253 files (12 at a time) | 622 s | 438 s | 0.70 |
-| ana's `CorpusV2/ExlawText.bend` | 2.7 s | 1.5 s | 0.56 |
-| ana's `Walk.bend` | 2.4 s | 2.3 s | 0.96 |
-| ana's `tests/SimDrive.bend` | 9.4 s | 15.2 s | 1.6 |
-| ana's `Everything.bend` (mostly parsing) | 1.3 s | 2.9 s | 2.2 |
+| upstream's tests and base.bend (1,880, 12 at a time) | 1,091 s | 374 s | 0.34 |
+| ana's 253 files (12 at a time) | 622 s | 369 s | 0.59 |
+| ana's `CorpusV2/ExlawText.bend` | 2.7 s | 1.3 s | 0.47 |
+| ana's `Walk.bend` | 2.4 s | 1.9 s | 0.78 |
+| ana's `tests/SimDrive.bend` | 9.4 s | 15.1 s | 1.6 |
+| ana's `Everything.bend` | 1.3 s | 2.5 s | 1.9 |
 | a law summing 8,000 U32s | 4.7 s | 0.30 s | 0.06 |
 
 Still slower: parsing, most of all where a match on strings over two
 columns flattens to millions of term nodes (ana's `tests/SimDrive.bend`:
-3.7M nodes, 15.2 s against upstream's 9.4 s, 19.7 s before gate10;
-`tests/Sim.bend` 1.13 of upstream's time in the gate, which imports it),
-ana's `Everything.bend`, and `Box/Act.bend` (1.56 s against 1.05 s). A 16-case match on string
+3.7M nodes, 15.1 s against upstream's 9.4 s, 19.7 s before gate10;
+`tests/Sim.bend` 1.09 of upstream's time in the gate, which imports it),
+ana's `Everything.bend` (its parse alone 0.97 s, 1.37 s before gate12),
+and `Box/Act.bend` (1.30 s against 1.05 s). A 16-case match on string
 literals now checks in 0.40 s against upstream's 0.50 s (1.72 s before).
 
 **Not done yet.** bendbis has no `--verdict` of its own: its checker,

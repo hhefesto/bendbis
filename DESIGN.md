@@ -869,6 +869,23 @@ than one session.
   files 0.76 -> 0.70 of upstream's time, upstream's tests 0.44 -> 0.42;
   SimDrive 19.7 -> 15.2 s (upstream 9.4), its 245,621-node cut 1.31 ->
   1.05 s (upstream 1.03).
+- **The parser's hot readers pass the state by hand** (Lex.bend: `P.peek`,
+  `P.pos`, `P.col`, `P.nl`, `P.ahead`, `P.at`, `P.take`, `P.skip`,
+  `P.bump`, `P.lexeme`, `P.skip_pos`; Res.bend: `P.span`, `P.span2`,
+  `P.var`, `P.reso`, `P.own`, `P.open`, `P.fresh_index`, `P.tld`,
+  `P.ctr_n`; Parse.bend: `name.var`). Each was a do block over
+  `L.P.cur()` or `L.P.env()`: a bind (two closures) and a shared copy of
+  the cursor or the Env, whose field reads then bumped and dropped every
+  other field (an Env has eleven). Now each matches the state's own Cur
+  and Env and builds them again. Three reads branched with `Bool.pick`,
+  which builds both arms: `tab.has` read both tables, `qual` built
+  `ns:k` for an empty ns, `P.reso` looked an undotted name's prefix up in
+  the aliases; each is a match now. gate12, gate13, gate14: 1,880 + 28 +
+  253 the same, eta and G too. ana's `Everything.bend` parse 1.37 ->
+  0.97 s (its check 2.89 -> 2.51 s, upstream 1.3); ana's 253 files 0.70
+  -> 0.59 of upstream's time, upstream's tests 0.42 -> 0.34. What is left
+  in the parser is R2's: the jobs' own do blocks (a term's job is five
+  binds) and the closures they make.
 - **Strictness.** A Bend def's arguments are evaluated before the call, so
   `Bool.pick(T, c, a, b)` evaluates both `a` and `b`. With a recursive call
   in each arm that is 2^n calls: bendbis's first `rows.other` (match
