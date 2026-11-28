@@ -507,6 +507,44 @@ that added an id to every `TRef`/`HRef` by sed showed one trap: a site that matc
 builds it again with a literal flag (`call.bang`) must keep the id, not
 reset it.
 
+R1's first step, tried 2026-11-28 and not kept (the patch: olimpo
+`~/.mugen/work/main/bendbis-r1a.patch`, not in the repo). Refs carried a number (`TRef`,
+`TVr` and `HRef` got an `x: U32`); Valid numbered every declared name in
+load order, Base's first (`ix`, a name-to-number map), and numbered each
+declaration's Refs in one walk before term_higher; the book kept its
+entries by name and, mirrored on every write, by number (a trie on the
+number's binary digits, as High's `Em`); Wnf's unfold, `cmp.ref` and
+Check's infer-ref read by number, and two Refs compared numbers. Output
+the same on Everything, SimDrive and Box/Act. 385k of Everything's 443k
+unfold reads went by number, and the string work they did went (`mp_go`
+718M to 496M instructions, `String.eq` 684M to 498M), but the run got
+slower: 25.47G to 25.92G instructions, 2.47 to 2.56 s; SimDrive 15.0 to
+15.9 s. Why: a read of a shared trie costs the same per level whatever its
+key is (the runtime bumps every field of each node it opens and drops the
+ones not taken: three per level here, a `Td` at every node since the
+numbers are dense), and 4,000 names are 12 levels either way, so the walk
+cost what the crit-bit walk did and only the key's string compares were
+saved; and numbering the Refs before term_higher walks every declaration,
+SimDrive's 3.5M-node `sdf.part` included (about 0.9 s). Numbering in the
+parser would remove the walk but not the trie's cost. So names as numbers
+pays only where a string compare is the whole cost (two Refs or two
+constructors compared by name, the scope's list), not for the book.
+
+Where the time goes at b1fa62e (2026-11-28, olimpo, callgrind and a
+copy of the emitted C whose `term_drop` counts its roots): Everything's
+check, 25.5G instructions, 2.45 s; the runtime's reference counting
+(`term_drop` 28%, `span_fade` 13%) is most of it, and of its 82M drops
+35M are string cells and 20M Base Map nodes (name reads: the crit-bit
+walks of `C.mp.find`, 917k of them, about 4,500 instructions each, 17% of
+the run; Wnf's unfold 528k, the parser's tables 290k), then closures
+(`Clo~apply` 7%, the binds about 5%: R2). SimDrive's parse: 80G
+instructions for 3.7M output nodes, 21,700 a node (p3's cut: 19,800, so
+linear), `term_drop` half the cycles; the roots it drops are Em nodes
+(p3: 9.25M drops, 4.9M nodes freed, for 245k output nodes): every em.set
+copies a path of about log2(key) nodes (keys are binder numbers, 10 to 12
+bits) and the last read of an env frees it again, and `ev.find` (484k
+reads, about 2,000 instructions each, 20%) walks the same paths.
+
 R2. The parser's and checker's monads (`L.P`, `K.K`) without closures: a
 do-block's continuation as a frame on an explicit job stack, as `ck.go`'s
 jobs already are for a rule's premises (defunctionalized). It removes
