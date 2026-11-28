@@ -208,72 +208,96 @@ type Ce is Data:
   CeNo{}
   CeV{v: H.H, c: U32}
 
-# the store's entries, a trie keyed as High's Em
-type Ct is Data:
-  CtTip{}
-  CtBin{e: Ce, l: Ct, r: Ct}
+# the store's entries, as bend.ts's mutable array of cells: a flat Array
+# of cap = 2^d entries, made at the first write (a store that fills no
+# cell allocates none) and doubled when a write is past its end. An Array
+# is affine (Type), so every store is threaded, never copied: a read
+# answers the entries back with the entry. Past depth 23 (the most a boxed
+# entry may have) a write is dropped: that cell reads as unfilled, so the
+# machine computes its whnf again, as it would with cells off.
+type Ca is Type:
+  CaNo{}
+  CaA{d: Nat, cap: U32, a: Array<Ce>}
 
 # a store: whether the machine makes cells, the next number, the entries
-type Cm is Data:
-  Cm{on: Bool, n: U32, t: Ct}
+type Cm is Type:
+  Cm{on: Bool, n: U32, t: Ca}
 
 def CELL() -> U32:
   2147483648
 
 # a store that makes no cells (term_wnf as the checker calls it)
 def cm.off() -> Cm:
-  Cm{False{}, 0, CtTip{}}
+  Cm{False{}, 0, CaNo{}}
 
 def cm.new() -> Cm:
-  Cm{True{}, 0, CtTip{}}
+  Cm{True{}, 0, CaNo{}}
 
-def ct.get.go(fuel: Nat, t: Ct, side: Nat, +k: U32) -> Ce:
-  match fuel t:
-    case 0n _:
-      CeNo{}
-    case _ CtTip{}:
-      CeNo{}
-    case 1n+f CtBin{e, l, r}:
-      match side:
-        case 0n:
-          e
-        case 1n:
-          +j = H.em.down(k, 1n)
-          ct.get.go(f, l, H.em.side(j), j)
-        case _:
-          +j = H.em.down(k, 2n)
-          ct.get.go(f, r, H.em.side(j), j)
+def ca.got(+d: Nat, +cap: U32, r: Array<Ce> & Ce) -> Ca & Ce:
+  (a, e) = r
+  (CaA{d, cap, a}, e)
 
-def ct.get(t: Ct, +k: U32) -> Ce:
-  ct.get.go(H.em.fuel(), t, H.em.side(k), k)
+def ca.get.in(z: Bool, +d: Nat, +cap: U32, a: Array<Ce>, +k: U32) -> Ca & Ce:
+  match z:
+    case True{}:
+      ca.got(d, cap, Array.get(Ce, a, k))
+    case False{}:
+      (CaA{d, cap, a}, CeNo{})
 
-def ct.set.go(fuel: Nat, t: Ct, side: Nat, +k: U32, x: Ce) -> Ct:
-  match fuel t:
-    case 0n t:
-      t
-    case 1n+f CtTip{}:
-      match side:
-        case 0n:
-          CtBin{x, CtTip{}, CtTip{}}
-        case 1n:
-          +j = H.em.down(k, 1n)
-          CtBin{CeNo{}, ct.set.go(f, CtTip{}, H.em.side(j), j, x), CtTip{}}
-        case _:
-          +j = H.em.down(k, 2n)
-          CtBin{CeNo{}, CtTip{}, ct.set.go(f, CtTip{}, H.em.side(j), j, x)}
-    case 1n+f CtBin{e, l, r}:
-      match side:
-        case 0n:
-          CtBin{x, l, r}
-        case 1n:
-          +j = H.em.down(k, 1n)
-          CtBin{e, ct.set.go(f, l, H.em.side(j), j, x), r}
-        case _:
-          +j = H.em.down(k, 2n)
-          CtBin{e, l, ct.set.go(f, r, H.em.side(j), j, x)}
+# entry k (CeNo past the end), and the entries
+def ca.get(t: Ca, +k: U32) -> Ca & Ce:
+  match t:
+    case CaNo{}:
+      (CaNo{}, CeNo{})
+    case CaA{+d, +cap, a}:
+      ca.get.in(U32.is_lt(k, cap), d, cap, a, k)
 
-def ct.set(t: Ct, +k: U32, x: Ce) -> Ct:
-  ct.set.go(H.em.fuel(), t, H.em.side(k), k, x)
+# a doubling's copy: the old entries moved, one by one, to the new array
+type Cg is Type:
+  Cg{src: Array<Ce>, dst: Array<Ce>}
+
+def ca.mv.at(r: Array<Ce> & Ce, dst: Array<Ce>, +i: U32) -> Cg:
+  (s, x) = r
+  Cg{s, Array.set(Ce, dst, i, x)}
+
+def ca.mv(f: Nat, g: Cg, +i: U32) -> Array<Ce>:
+  match f g:
+    case 0n Cg{s, d}:
+      d
+    case 1n+h Cg{s, d}:
+      ca.mv(h, ca.mv.at(Array.swap(Ce, s, i, CeNo{}), d, i), (i + 1 : U32))
+
+# doubled until k is inside (z), at most fuel times
+def ca.fit(fuel: Nat, z: Bool, +d: Nat, +cap: U32, a: Array<Ce>, +k: U32) -> Ca:
+  match fuel z:
+    case _ True{}:
+      CaA{d, cap, a}
+    case 0n False{}:
+      CaA{d, cap, a}
+    case 1n+f False{}:
+      +c2 = (cap + cap : U32)
+      ca.fit(f, U32.is_lt(k, c2), 1n+d, c2, ca.mv(U32.to_nat(cap), Cg{a, Array.new(Ce, 1n+d, CeNo{})}, 0), k)
+
+def ca.set.in(z: Bool, +d: Nat, +cap: U32, a: Array<Ce>, +k: U32, x: Ce) -> Ca:
+  match z:
+    case True{}:
+      CaA{d, cap, Array.set(Ce, a, k, x)}
+    case False{}:
+      CaA{d, cap, a}
+
+def ca.set.a(t: Ca, +k: U32, x: Ce) -> Ca:
+  match t:
+    case CaNo{}:
+      CaNo{}
+    case CaA{+d, +cap, a}:
+      ca.set.in(U32.is_lt(k, cap), d, cap, a, k, x)
+
+def ca.set(t: Ca, +k: U32, x: Ce) -> Ca:
+  match t:
+    case CaNo{}:
+      ca.set.a(ca.fit(19n, U32.is_lt(k, 16), 4n, 16, Array.new(Ce, 4n, CeNo{}), k), k, x)
+    case CaA{+d, +cap, a}:
+      ca.set.a(ca.fit(Nat.sub(23n, d), U32.is_lt(k, cap), d, cap, a, k), k, x)
 
 def is.cell(+i: U32) -> Bool:
   U32.is_ge(i, CELL())
@@ -286,10 +310,10 @@ def h.is.cell(h: H.H) -> Bool:
       False{}
 
 # a term and the store after making it
-type Cx is Data:
+type Cx is Type:
   Cx{h: H.H, cm: Cm}
 
-type Cxs is Data:
+type Cxs is Type:
   Cxs{hs: List<&2, H.H>, cm: Cm}
 
 def cx.h(r: Cx) -> H.H:
@@ -317,7 +341,7 @@ def cell(cm: Cm, +x: H.H, +k: String) -> Cx:
       Cx{cell.of(z, n, x, k), Cm{on, cell.next(z, n), t}}
 
 # each of xs in a cell (a let's values named by its binders, in ks)
-def cells.go(xs: List<&2, H.H>, +on: Bool, +n: U32, t: Ct, +ks: List<&2, String>, acc: List<&2, H.H>) -> Cxs:
+def cells.go(xs: List<&2, H.H>, +on: Bool, +n: U32, t: Ca, +ks: List<&2, String>, acc: List<&2, H.H>) -> Cxs:
   match xs:
     case Nil{}:
       Cxs{List.reverse(&2, H.H, acc), Cm{on, n, t}}
@@ -350,25 +374,40 @@ def cells.let(cm: Cm, +bs: List<&2, H.HB>) -> Cxs:
     case Cm{on, n, t}:
       cells.go(hb.vals(bs), on, n, t, hb.ks(bs), Nil{})
 
-# a cell's root: the end of its class's links (at a root, Bool.pick's
-# unused arm reads cell 0, the trie's top: no walk)
-def cm.root.go(fuel: Nat, t: Ct, e: Ce, +k: U32) -> U32:
-  match fuel e:
-    case 0n _:
-      k
-    case 1n+f CeV{v, +c}:
-      +u = t
-      +z = U32.is_eq(c, k)
-      cm.root.go(f, u, Bool.pick(Ce, z, CeNo{}, ct.get(u, Bool.pick(U32, z, 0, c))), c)
-    case _ CeNo{}:
-      k
+# a cell's root: the end of its class's links (a cell linked to itself, or
+# unfilled), and the entries
+type Rs is Type:
+  RsDone{t: Ca, k: U32}
+  RsNext{t: Ca, e: Ce, k: U32}
 
-def cm.root(+t: Ct, +k: U32) -> U32:
-  cm.root.go(4294967295n, t, ct.get(t, k), k)
+def rs.next(r: Ca & Ce, +k: U32) -> Rs:
+  (t, e) = r
+  RsNext{t, e, k}
+
+def rs.step(z: Bool, t: Ca, +c: U32) -> Rs:
+  match z:
+    case True{}:
+      RsDone{t, c}
+    case False{}:
+      rs.next(ca.get(t, c), c)
+
+def cm.root.go(fuel: Nat, s: Rs) -> Ca & U32:
+  match fuel s:
+    case _ RsDone{t, k}:
+      (t, k)
+    case 0n RsNext{t, e, k}:
+      (t, k)
+    case 1n+f RsNext{t, CeV{v, +c}, +k}:
+      cm.root.go(f, rs.step(U32.is_eq(c, k), t, c))
+    case 1n+f RsNext{t, CeNo{}, k}:
+      (t, k)
+
+def cm.root(t: Ca, +k: U32) -> Ca & U32:
+  cm.root.go(4294967295n, rs.next(ca.get(t, k), k))
 
 # a cell's whnf as its own (the store's, once filled); the frame the
 # machine pushes to fill it, if not yet
-type Rd is Data:
+type Rd is Type:
   Rd{v: H.H, fs: List<&2, Fr>, cm: Cm}
 
 def cell.read.e(e: Ce, cm: Cm, +j: U32, v: H.H) -> Rd:
@@ -379,13 +418,17 @@ def cell.read.e(e: Ce, cm: Cm, +j: U32, v: H.H) -> Rd:
       +u = v
       Rd{u, [FVar{j, va.of(u)}], cm}
 
+def cell.read.r(r: Ca & Ce, +on: Bool, +n: U32, +j: U32, v: H.H) -> Rd:
+  (t, e) = r
+  cell.read.e(e, Cm{on, n, t}, j, v)
+
 def cell.read.at(z: Bool, cm: Cm, +i: U32, v: H.H) -> Rd:
   match z cm:
     case False{} cm:
       Rd{v, Nil{}, cm}
-    case True{} Cm{on, n, +t}:
+    case True{} Cm{+on, +n, t}:
       +j = (i - CELL() : U32)
-      cell.read.e(ct.get(t, j), Cm{on, n, t}, j, v)
+      cell.read.r(ca.get(t, j), on, n, j, v)
 
 # reading HVal{_, i, _, v}: a let's value (v), or cell i of the store
 def cell.read(cm: Cm, +i: U32, v: H.H) -> Rd:
@@ -458,7 +501,7 @@ def cell.parts(cm: Cm, tm: H.H) -> Cx:
 def cell.put(cm: Cm, +j: U32, v: H.H) -> Cm:
   match cm:
     case Cm{on, n, t}:
-      Cm{on, n, ct.set(t, j, CeV{v, j})}
+      Cm{on, n, ca.set(t, j, CeV{v, j})}
 
 def fill.ann(r: Cx, +j: U32, +t2: H.H, s: C.Sp) -> Cx:
   match r:
@@ -592,7 +635,7 @@ def is.rfl(t: H.H) -> Bool:
 
 # what the machine does next: reduce the focus (main), unwind a frame
 # (back), or decide on something it computed
-type Md is Data:
+type Md is Type:
   MdMain{}
   MdBack{}
   MdRef{td: Td}
@@ -800,7 +843,7 @@ def apc(+real: Map<&2, Td>, cl: H.Cl, x: H.H) -> H.H:
 # the checker's terms. A node with children is a frame (Sk) that its next
 # child's normal form, with the store as that child left it, returns to.
 
-type Sv is Data:
+type Sv is Type:
   SvT{t: C.Tm, cm: Cm}
   SvL{ts: List<&2, C.Tm>, cm: Cm}
 
@@ -827,7 +870,7 @@ type Sk is Data:
   KL1{t: List<&2, H.H>, d: U32}
   KL2{x: C.Tm}
 
-type Sj is Data:
+type Sj is Type:
   SjT{h: H.H, d: U32}
   SjX{x: Cx, d: U32}
   SjW{t: H.H, d: U32}
@@ -1189,7 +1232,7 @@ def same.ref(a: H.H, b: H.H) -> Bool:
       False{}
 
 # a comparison's next ask, and the store after it
-type Cq is Data:
+type Cq is Type:
   Cq{cs: Cs, cm: Cm}
 
 def cell.n(h: H.H) -> U32:
@@ -1235,17 +1278,29 @@ def cmp.cells(z: Bool, +eq: Bool, +w: W, cm: Cm, +l: H.H, +r: H.H, +d: U32) -> C
 
 # compare_go's start: one cell, or two of one class (found equal before);
 # the roots are looked up only for two cells
-def cells.same.at(z: Bool, +t: Ct, +l: H.H, +r: H.H) -> Bool:
+def cells.same.c(rb: Ca & U32, +a: U32) -> Ca & Bool:
+  (t, +b) = rb
+  (t, U32.is_eq(a, b))
+
+def cells.same.b(ra: Ca & U32, +r: H.H) -> Ca & Bool:
+  (t, +a) = ra
+  cells.same.c(cm.root(t, cell.n(r)), a)
+
+def cells.same.at(z: Bool, t: Ca, +l: H.H, +r: H.H) -> Ca & Bool:
   match z:
     case True{}:
-      U32.is_eq(cm.root(t, cell.n(l)), cm.root(t, cell.n(r)))
+      cells.same.b(cm.root(t, cell.n(l)), r)
     case False{}:
-      False{}
+      (t, False{})
+
+def cells.same.d(r: Ca & Bool, +on: Bool, +n: U32) -> Cq:
+  (t, z) = r
+  Cq{cs.bool(z), Cm{on, n, t}}
 
 def cells.same(cm: Cm, +l: H.H, +r: H.H) -> Cq:
   match cm:
-    case Cm{on, n, +t}:
-      Cq{cs.bool(cells.same.at(Bool.and(h.is.cell(l), h.is.cell(r)), t, l, r)), Cm{on, n, t}}
+    case Cm{+on, +n, t}:
+      cells.same.d(cells.same.at(Bool.and(h.is.cell(l), h.is.cell(r)), t, l, r), on, n)
 
 def cmp.pre.at(sm: Cq, +eq: Bool, +w: W, +l: H.H, +r: H.H, +d: U32) -> Cq:
   match sm:
@@ -1256,26 +1311,36 @@ def cmp.pre(+eq: Bool, +w: W, cm: Cm, +l: H.H, +r: H.H, +d: U32) -> Cq:
   cmp.pre.at(cells.same(cm, l, r), eq, w, l, r, d)
 
 # bend.ts's r.c = l: the second class under the first
-def cm.link.e(e: Ce, t: Ct, +rb: U32, +ra: U32) -> Ct:
+def cm.link.e(e: Ce, t: Ca, +rb: U32, +ra: U32) -> Ca:
   match e:
     case CeV{v, c}:
-      ct.set(t, rb, CeV{v, ra})
+      ca.set(t, rb, CeV{v, ra})
     case CeNo{}:
       t
+
+def cm.link.d(r: Ca & Ce, +on: Bool, +n: U32, +rb: U32, +ra: U32) -> Cm:
+  (t, e) = r
+  Cm{on, n, cm.link.e(e, t, rb, ra)}
 
 def cm.link.at(z: Bool, cm: Cm, +ra: U32, +rb: U32) -> Cm:
   match z cm:
     case True{} cm:
       cm
-    case False{} Cm{on, n, +t}:
-      Cm{on, n, cm.link.e(ct.get(t, rb), t, rb, ra)}
+    case False{} Cm{+on, +n, t}:
+      cm.link.d(ca.get(t, rb), on, n, rb, ra)
+
+def cm.link.c(rb: Ca & U32, +ra: U32, +on: Bool, +n: U32) -> Cm:
+  (t, +b) = rb
+  cm.link.at(U32.is_eq(ra, b), Cm{on, n, t}, ra, b)
+
+def cm.link.b(ra: Ca & U32, +b: U32, +on: Bool, +n: U32) -> Cm:
+  (t, +a) = ra
+  cm.link.c(cm.root(t, b), a, on, n)
 
 def cm.link(cm: Cm, +a: U32, +b: U32) -> Cm:
   match cm:
-    case Cm{on, n, +t}:
-      +ra = cm.root(t, a)
-      +rb = cm.root(t, b)
-      cm.link.at(U32.is_eq(ra, rb), Cm{on, n, t}, ra, rb)
+    case Cm{+on, +n, t}:
+      cm.link.b(cm.root(t, a), b, on, n)
 
 def cmp.step(+w: W, cm: Cm, c: Cp) -> Cq:
   match c:
@@ -1290,7 +1355,7 @@ def cmp.step(+w: W, cm: Cm, c: Cp) -> Cq:
       Cq{CsAll{[CpT{eq, apc(w.real(w), a, x), apc(w.real(w), b, x), (d + 1 : U32)}]}, cm}
 
 # an answer, and the store after it
-type Cb is Data:
+type Cb is Type:
   Cb{z: Bool, cm: Cm}
 
 def cb.z(r: Cb) -> Bool:
@@ -1316,7 +1381,7 @@ def cmp.or(r: Cb, alt: Cm -> Cb, rest: Cm -> Cb) -> Cb:
         case False{}:
           cmp.or2(alt(cm), rest)
 
-type Cst is Data:
+type Cst is Type:
   CstNext{}
   CstGot{r: Cq}
 

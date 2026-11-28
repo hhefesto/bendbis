@@ -1701,6 +1701,34 @@ type KJ is Data:
   JDef{k: String, td: W.Td, z: U32}
   JDefT{j: U32, t: H.H, v: H.H, T: H.H, k: String, n: U32, qs: List<&2, C.Q>, u: Bool, z: U32}
 
+# check-rfl's goal, its whnf in a store of share cells, and (if that is an
+# equality) whether its sides compare equal in the same store: the store
+# is affine, so the whnf and the comparison take it in turn
+type Rf is Data:
+  Rf{tw: H.H, ok: Bool}
+
+def rf.tw(r: Rf) -> H.H:
+  match r:
+    case Rf{tw, ok}:
+      tw
+
+def rf.ok(r: Rf) -> Bool:
+  match r:
+    case Rf{tw, ok}:
+      ok
+
+def rfl.at(z: Bool, +w: W.W, +tw: H.H, cm: W.Cm, +d: U32) -> Bool:
+  match z:
+    case True{}:
+      W.compare.cm(True{}, w, cm, h.eql.a(tw), h.eql.b(tw), d)
+    case False{}:
+      False{}
+
+def rfl.go(+w: W.W, r: W.Cx, +d: U32) -> Rf:
+  match r:
+    case W.Cx{+tw, cm}:
+      Rf{tw, rfl.at(h.is_eql(tw), w, tw, cm, d)}
+
 def ck.go(+fuel: Nat, j: KJ) -> K(KV):
   match fuel j:
     case 0n _:
@@ -1885,10 +1913,10 @@ def ck.go(+fuel: Nat, j: KJ) -> K(KV):
         case H.HRfl{+s}:
           do K<KV>:
             +w : W.W <- K.w()
-            +r : W.Cx = W.wnf.c(w, W.cm.new(), ty)
-            +tw : H.H = W.cx.h(r)
+            +r : Rf = rfl.go(w, W.wnf.c(w, W.cm.new(), ty), d)
+            +tw : H.H = rf.tw(r)
             K.if(KV, h.is_eql(tw),
-              st => K.if(KV, W.compare.cm(True{}, w, W.cx.cm(r), h.eql.a(tw), h.eql.b(tw), d),
+              st => K.if(KV, rf.ok(r),
                 st2 => (do K<KV>:
                   K.ref(ty)
                   return VU{UsTip{}, EsNo{}})(st2),
