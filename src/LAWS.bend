@@ -666,3 +666,51 @@ def patt.terms.length(xs, s):
     case Con{C.PCtr{k, ys, u}, t}:
       %patt.terms.length(t, s) : {1n+List.length(&2, C.Tm, F.patt.terms(t, s)) == 1n+_ : Nat}
       {==}
+
+# Dead Subs (Flat's sub.live): a Sub stays only over a term its index occurs
+# in; a literal has none, so a Sub over one is the literal, and out of fuel
+# the answer is yes (the Sub stays)
+law tm.has.u32:
+  for +i: U32
+  for +n: U32
+  for +s: C.Sp
+  {C.tm.has(C.TU32{n, s}, i) == False{} : Bool}
+
+def tm.has.u32(i, n, s):
+  {==}
+
+law sub.live.u32:
+  for +i: U32
+  for v: C.Pat
+  for +n: U32
+  for +s: C.Sp
+  {F.sub.live(i, v, C.TU32{n, s}) == C.TU32{n, s} : C.Tm}
+
+def sub.live.u32(i, v, n, s):
+  {==}
+
+law tms.has.out:
+  for hit: Bool
+  for ps: List<&2, C.Pat>
+  for ts: List<&2, C.Tm>
+  for +i: U32
+  {C.tms.has(0n, hit, ps, ts, i) == True{} : Bool}
+
+def tms.has.out(hit, ps, ts, i):
+  match hit ps ts:
+    case True{} Nil{} Nil{}:
+      {==}
+    case True{} Nil{} Con{t, r}:
+      {==}
+    case True{} Con{p, r} Nil{}:
+      {==}
+    case True{} Con{p, r} Con{t, u}:
+      {==}
+    case False{} Nil{} Nil{}:
+      {==}
+    case False{} Nil{} Con{t, r}:
+      {==}
+    case False{} Con{p, r} Nil{}:
+      {==}
+    case False{} Con{p, r} Con{t, u}:
+      {==}

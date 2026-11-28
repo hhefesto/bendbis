@@ -62,22 +62,25 @@ close the gap: `DESIGN.md`, "Speed".
 against upstream at bendbis's pin; two runs each, nothing else running):
 the checker's share cells are a flat array, its hot paths build no unused
 value, and Base's U32 operations on literals run as natives (`DESIGN.md`,
-"U32 natives"; `gate/u32n.sh`). The adjunction's gates pass (1,880 + 28 +
-253 files byte for byte upstream's).
+"U32 natives"; `gate/u32n.sh`), and match flattening makes no Sub that
+nothing reads ("Dead Subs"; from the next commit on, gate8). The
+adjunction's gates pass (1,880 + 28 + 253 files byte for byte upstream's).
 
 | input | upstream | bendbis | bendbis / upstream |
 |---|---|---|---|
-| upstream's tests and base.bend (1,880, 12 at a time) | 1,091 s | 594 s | 0.54 |
-| ana's 253 files (12 at a time) | 622 s | 617 s | 0.99 |
+| upstream's tests and base.bend (1,880, 12 at a time) | 1,091 s | 521 s | 0.48 |
+| ana's 253 files (12 at a time) | 622 s | 553 s | 0.89 |
 | ana's `CorpusV2/ExlawText.bend` | 2.7 s | 1.6 s | 0.59 |
 | ana's `Walk.bend` | 2.4 s | 2.4 s | 1.0 |
 | ana's `Everything.bend` (mostly parsing) | 1.3 s | 3.0 s | 2.3 |
 | a law summing 8,000 U32s | 4.7 s | 0.30 s | 0.06 |
 
-Still slower: parsing (a 16-case match on string literals parses in 1.3 s
-against upstream's 0.26 s for the whole check), and ana files built on such
-matches (`tests/Sim.bend` 1.95, `Box/Act.bend` 1.92, `tests/chain.bend`
-1.70 of upstream's time in the gate).
+Still slower: parsing, most of all where a match on strings over two
+columns flattens to millions of term nodes (ana's `tests/SimDrive.bend`:
+3.7M nodes, 23.4 s against upstream's 9.4 s; `tests/Sim.bend` 1.79 and
+`tests/chain.bend` 1.53 of upstream's time in the gate, which import it),
+and `Box/Act.bend` (1.70 s against 1.05 s). A 16-case match on string
+literals now checks in 0.40 s against upstream's 0.50 s (1.72 s before).
 
 **Not done yet.** bendbis has no `--verdict` of its own: its checker,
 like upstream's `--check-only`, is exact against upstream on the files

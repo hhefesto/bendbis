@@ -786,6 +786,26 @@ than one session.
   `Walk.bend`, 8.7 / 2.4 / 2.4 s; ana's `Everything.bend` (mostly
   parsing), 3.4 / 3.0 / 1.3 s. ana's 253 files in the gate (12 at a
   time): 1.14 of upstream's time before, 0.99 now.
+- **Dead Subs** (Flat.bend, `sub.live`; Core.bend, `tm.has`). Match
+  flattening puts a Sub on a row's body for each variable a split binds,
+  and a catch-all row goes into every split's both sides, so its body
+  collects two Subs a split, and the copies share their tails: a
+  16-case match on string literals made 36,820 Subs, and term_higher
+  walked 2,255,658 Sub steps (a chain per leaf), each an `em.set`: an
+  EmBin path of about 13 nodes, built and later freed (`term_drop` was
+  56% of the parse). bend.ts's list_set is one cell, so the same walk
+  costs it little. term_higher reads a Sub's entry only at a Var, a Var
+  Ref or a pattern var of the Sub's index under it, so bendbis makes no
+  Sub over a term its index occurs nowhere in (`tm.has`: any Var, Var
+  Ref, Sub index or Sub pattern var of that index; out of fuel, yes):
+  term_higher's answer is the same term. Laws: `tm.has.u32`,
+  `sub.live.u32`, `tms.has.out` (LAWS.bend, --verdict); the gates: gate8,
+  1,880 + 28 + 253 files, eta and G, all the same. Measured on olimpo,
+  before / now / upstream, `--check-only`: the 16-case match, 1.72 / 0.40
+  / 0.50 s; ana's `Box/OnBox.bend`, 2.91 / 1.32 / 0.86 s;
+  `Box/Act.bend`, 4.03 / 1.70 / 1.05 s. ana's 253 files in the gate: 0.99
+  of upstream's time before, 0.89 now; upstream's tests and base.bend:
+  0.54 before, 0.48 now.
 - **Strictness.** A Bend def's arguments are evaluated before the call, so
   `Bool.pick(T, c, a, b)` evaluates both `a` and `b`. With a recursive call
   in each arm that is 2^n calls: bendbis's first `rows.other` (match

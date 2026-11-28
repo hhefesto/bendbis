@@ -181,6 +181,23 @@ def pats.get(j: Nat, vs: List<&2, C.Pat>) -> C.Pat:
     case _ Nil{}:
       C.PVar{"_", C.NONE(), C.QL{}, C.NoSp{}}
 
+# Sub(i, v, t), or t itself when i occurs nowhere in t. term_higher reads a
+# Sub's entry only at a Var, a Var Ref or a pattern var of index i under
+# it, so a Sub on an index that occurs nowhere under it leaves
+# term_higher's answer as it is. bend.ts keeps it: a list_set is one cell
+# there; a flattened match's catch-all rows take two Subs a split and share
+# their tails, so term_higher walks a chain of them per leaf (a 16-case
+# string match: 2.26M Sub steps for 37k Subs), each an EmBin path here
+def sub.on(hit: Bool, +i: U32, v: C.Pat, t: C.Tm) -> C.Tm:
+  match hit:
+    case True{}:
+      C.TSub{i, v, t, C.NoSp{}}
+    case False{}:
+      t
+
+def sub.live(+i: U32, v: C.Pat, +t: C.Tm) -> C.Tm:
+  sub.on(C.tm.has(t, i), i, v, t)
+
 # scrut(e) of body_sub: the var i becomes v's term at its span, any other
 # term waits under a Sub
 def scrut(e: C.Tm, +i: U32, +v: C.Pat) -> C.Tm:
@@ -190,7 +207,7 @@ def scrut(e: C.Tm, +i: U32, +v: C.Pat) -> C.Tm:
     case C.TVr{k, +j, +s, r}:
       Bool.pick(C.Tm, U32.is_eq(i, j), patt.term(v, s), C.TVr{k, j, s, r})
     case e:
-      C.TSub{i, v, e, C.NoSp{}}
+      sub.live(i, v, e)
 
 def scrut.all(es: List<&2, C.Tm>, +i: U32, +v: C.Pat) -> List<&2, C.Tm>:
   match es:
@@ -406,7 +423,7 @@ def fl.go(+fuel: Nat, j: FJ) -> L.P(FV):
             r : FV <- fl.go(p, FjSub{f, i, v})
             return FvB{C.BLoc{ks, q, scrut.all(vs, i, v), fv.b(r)}}
         case C.BTm{t}:
-          L.P.pure(FV, FvB{C.BTm{C.TSub{i, v, t, C.NoSp{}}}})
+          L.P.pure(FV, FvB{C.BTm{sub.live(i, v, t)}})
     case 1n+p FjSubRows{rs, +i, +v}:
       match rs:
         case Nil{}:

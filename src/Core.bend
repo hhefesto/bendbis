@@ -430,6 +430,65 @@ def tms.size(fuel: Nat, ts: List<&2, Tm>, +n: U32) -> U32:
 def tm.size(t: Tm) -> U32:
   tms.size(4294967295n, [t], 0)
 
+# Index occurrence
+# ----------------
+
+# whether the index i occurs in ps or ts, hit or not: as a Var's, a Var
+# Ref's or a Sub's, or in a Sub's pattern (a work list, so on fuel: one
+# step a node; out of fuel, yes). Binders don't count: only a Var, a Var
+# Ref or a pattern's var reads an environment.
+def tms.has(fuel: Nat, hit: Bool, ps: List<&2, Pat>, ts: List<&2, Tm>, +i: U32) -> Bool:
+  match fuel hit ps ts:
+    case 0n _ _ _:
+      True{}
+    case _ True{} _ _:
+      True{}
+    case 1n+f False{} Con{p, r} us:
+      match p:
+        case PVar{k, j, q, s}:
+          tms.has(f, U32.is_eq(i, j), r, us, i)
+        case PCtr{k, xs, s}:
+          tms.has(f, False{}, List.append(&2, Pat, xs, r), us, i)
+    case _ False{} Nil{} Nil{}:
+      False{}
+    case 1n+f False{} Nil{} Con{t, r}:
+      match t:
+        case TVar{k, j, s}:
+          tms.has(f, U32.is_eq(i, j), Nil{}, r, i)
+        case TVr{k, j, s, x}:
+          tms.has(f, U32.is_eq(i, j), Nil{}, r, i)
+        case TSub{j, v, b, s}:
+          tms.has(f, U32.is_eq(i, j), [v], b <> r, i)
+        case TLet{bs, b, s}:
+          tms.has(f, False{}, Nil{}, List.append(&2, Tm, bnd.vals(bs), b <> r), i)
+        case TTyp{g, s}:
+          tms.has(f, False{}, Nil{}, g <> r, i)
+        case TMin{a, b, s}:
+          tms.has(f, False{}, Nil{}, a <> b <> r, i)
+        case TAll{q, k, j, A, B, s}:
+          tms.has(f, False{}, Nil{}, A <> B <> r, i)
+        case TLam{k, j, b, s, q}:
+          tms.has(f, False{}, Nil{}, b <> r, i)
+        case TApp{a, b, s}:
+          tms.has(f, False{}, Nil{}, a <> b <> r, i)
+        case TAdt{k, xs, rs, s}:
+          tms.has(f, False{}, Nil{}, List.append(&2, Tm, xs, r), i)
+        case TCtr{k, xs, s}:
+          tms.has(f, False{}, Nil{}, List.append(&2, Tm, xs, r), i)
+        case TMat{k, h, b, s}:
+          tms.has(f, False{}, Nil{}, h <> b <> r, i)
+        case TEql{a, b, A, s}:
+          tms.has(f, False{}, Nil{}, a <> b <> A <> r, i)
+        case TRwt{e, p, b, s}:
+          tms.has(f, False{}, Nil{}, e <> p <> b <> r, i)
+        case TAnn{x, A, s}:
+          tms.has(f, False{}, Nil{}, x <> A <> r, i)
+        case _:
+          tms.has(f, False{}, Nil{}, r, i)
+
+def tm.has(t: Tm, +i: U32) -> Bool:
+  tms.has(4294967295n, False{}, Nil{}, [t], i)
+
 # Reading a map the caller keeps
 # ------------------------------
 
