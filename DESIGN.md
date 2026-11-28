@@ -525,6 +525,22 @@ fewer `+` (shared) values read many times, maps and stores updated where
 they are not shared, so a read does not bump and drop every field it
 passes.
 
+Where the time goes after gate9 (2026-11-28, olimpo, callgrind and
+counters patched into the emitted C under /tmp/bb-sp/dbg): ana's
+`tests/SimDrive.bend` spends it on one def, `sdf.part`, a match on two
+string columns that flattens to 3.5M term nodes (upstream builds the same
+term; Sim.bend and chain.bend import it and pay it again). A cut of it
+(`/tmp/bb-sp/sp/p3.bend`, 245,621 nodes, 1.30 s against upstream's 1.03
+s): parsing is 6.3M term_higher steps (26 a node of output), 2.5M
+`tm.has` steps and 2.8M `em.set` steps (the live Subs); checking is
+119,326 check-ctr steps at about 13k cycles each (the datatype's entry by
+name, the constructor by name, its telescope filled, then 240,905 JTele
+steps) and the `K` binds' closures. span_fade alone is 26.7M calls there,
+the biggest single sources `em.get`'s walk (4.7M) and `String.eq` (5.1M:
+names compared a character a time, each one a shared cell): R1 and R4.
+`Box/Act.bend`: `Clo_apply` 11.8% and `Lex.P.bind` 7.6% of instructions
+(the parser's monad, R2).
+
 Each of R1 to R3 touches most modules (Check.bend alone is 2,087 lines)
 and is a session's work or more; the gates (1,880 + 28 + 253, byte for
 byte) run after each, and the speed table above gets a row each time.
