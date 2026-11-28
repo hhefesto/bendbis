@@ -791,103 +791,173 @@ def apc(+real: Map<&2, Td>, cl: H.Cl, x: H.H) -> H.H:
 # term_lower(term_snf(t), d): what expr_show prints
 # -------------------------------------------------
 
-type Sj is Data:
-  SjT{h: H.H, d: U32}
-  SjW{t: H.H, d: U32}
-  SjL{hs: List<&2, H.H>, d: U32}
+# term_snf shares as term_compare does: one store of cells for the whole
+# normal form, so a value demanded twice (a + parameter, a let read in two
+# places) is reduced once, as bend.ts's cells reduce it. Without it a
+# normal form of shared arithmetic (an F64 law's failing side, F64.bend's
+# + parameters) is reduced once per path to each use: exponential. The
+# store is dropped when the normal form is done (snfl), so no cell reaches
+# the checker's terms. A node with children is a frame (Sk) that its next
+# child's normal form, with the store as that child left it, returns to.
 
 type Sv is Data:
-  SvT{t: C.Tm}
-  SvL{ts: List<&2, C.Tm>}
+  SvT{t: C.Tm, cm: Cm}
+  SvL{ts: List<&2, C.Tm>, cm: Cm}
+
+type Sk is Data:
+  KTyp{s: C.Sp}
+  KMin1{b: H.H, s: C.Sp, d: U32}
+  KMin2{x: C.Tm, s: C.Sp}
+  KAll1{q: C.Q, k: String, cl: H.Cl, s: C.Sp, d: U32}
+  KAll2{q: C.Q, k: String, d: U32, x: C.Tm, s: C.Sp}
+  KLam{k: String, d: U32, s: C.Sp}
+  KAppR{k: String, u: C.Sp, b: Bool, s: C.Sp}
+  KApp1{x: H.H, s: C.Sp, d: U32}
+  KApp2{y: C.Tm, s: C.Sp}
+  KAdt{k: String, r: List<&2, String>, s: C.Sp}
+  KCtr{k: String, s: C.Sp}
+  KMat1{k: String, m: H.H, s: C.Sp, d: U32}
+  KMat2{k: String, x: C.Tm, s: C.Sp}
+  KEql1{b: H.H, A: H.H, s: C.Sp, d: U32}
+  KEql2{x: C.Tm, A: H.H, s: C.Sp, d: U32}
+  KEql3{x: C.Tm, y: C.Tm, s: C.Sp}
+  KRwt1{m: H.H, f: H.H, s: C.Sp, d: U32}
+  KRwt2{x: C.Tm, f: H.H, s: C.Sp, d: U32}
+  KRwt3{x: C.Tm, y: C.Tm, s: C.Sp}
+  KL1{t: List<&2, H.H>, d: U32}
+  KL2{x: C.Tm}
+
+type Sj is Data:
+  SjT{h: H.H, d: U32}
+  SjX{x: Cx, d: U32}
+  SjW{t: H.H, d: U32}
+  SjL{hs: List<&2, H.H>, d: U32}
+  SjK{k: Sk, r: Sv}
 
 def sv.t(v: Sv) -> C.Tm:
   match v:
-    case SvT{t}:
+    case SvT{t, cm}:
       t
     case _:
       C.THol{"bendbis", C.NoSp{}}
 
-def sv.ts(v: Sv) -> List<&2, C.Tm>:
-  match v:
-    case SvL{ts}:
-      ts
-    case _:
-      Nil{}
-
-def snf.go(+fuel: Nat, +w: W, j: Sj) -> Sv:
+def snf.go(+fuel: Nat, +w: W, cm: Cm, j: Sj) -> Sv:
   match fuel j:
     case 0n _:
-      SvT{C.THol{"bendbis: term_snf ran out of fuel", C.NoSp{}}}
+      SvT{C.THol{"bendbis: term_snf ran out of fuel", C.NoSp{}}, cm.off()}
+    case 1n+p SjT{h, d}:
+      snf.go(p, w, cm.off(), SjX{wnf.c(w, cm, h), d})
+    case 1n+p SjX{x, d}:
+      match x:
+        case Cx{t, c2}:
+          snf.go(p, w, c2, SjW{t, d})
     case 1n+p SjL{hs, +d}:
       match hs:
         case Nil{}:
-          SvL{Nil{}}
+          SvL{Nil{}, cm}
         case Con{h, t}:
-          +x = sv.t(snf.go(p, w, SjT{h, d}))
-          SvL{x <> sv.ts(snf.go(p, w, SjL{t, d}))}
-    case 1n+p SjT{h, +d}:
-      snf.go(p, w, SjW{wnf(w, h), d})
+          snf.go(p, w, cm.off(), SjK{KL1{t, d}, snf.go(p, w, cm, SjT{h, d})})
+    case 1n+p SjK{k, r}:
+      match k r:
+        case KL1{t, d} SvT{x, c2}:
+          snf.go(p, w, cm.off(), SjK{KL2{x}, snf.go(p, w, c2, SjL{t, d})})
+        case KL2{x} SvL{ts, c2}:
+          SvL{x <> ts, c2}
+        case KTyp{s} SvT{x, c2}:
+          SvT{C.TTyp{x, s}, c2}
+        case KMin1{b, s, d} SvT{x, c2}:
+          snf.go(p, w, cm.off(), SjK{KMin2{x, s}, snf.go(p, w, c2, SjT{b, d})})
+        case KMin2{x, s} SvT{y, c2}:
+          SvT{C.TMin{x, y, s}, c2}
+        case KAll1{q, +k, cl, s, +d} SvT{x, c2}:
+          snf.go(p, w, cm.off(), SjK{KAll2{q, k, d, x, s}, snf.go(p, w, c2, SjT{apc(w.real(w), cl, H.HVar{k, d, C.NoSp{}}), (d + 1 : U32)})})
+        case KAll2{q, k, d, x, s} SvT{y, c2}:
+          SvT{C.TAll{q, k, d, x, y, s}, c2}
+        case KLam{k, d, s} SvT{y, c2}:
+          SvT{C.TLam{k, d, y, s, C.QL{}}, c2}
+        case KAppR{k, u, b, s} SvT{x, c2}:
+          SvT{C.TApp{C.TRef{k, u, b}, x, s}, c2}
+        case KApp1{x, s, d} SvT{y, c2}:
+          snf.go(p, w, cm.off(), SjK{KApp2{y, s}, snf.go(p, w, c2, SjT{x, d})})
+        case KApp2{y, s} SvT{x, c2}:
+          SvT{C.TApp{y, x, s}, c2}
+        case KAdt{k, rs, s} SvL{ts, c2}:
+          SvT{C.TAdt{k, ts, rs, s}, c2}
+        case KCtr{k, s} SvL{ts, c2}:
+          SvT{C.TCtr{k, ts, s}, c2}
+        case KMat1{k, m, s, d} SvT{x, c2}:
+          snf.go(p, w, cm.off(), SjK{KMat2{k, x, s}, snf.go(p, w, c2, SjT{m, d})})
+        case KMat2{k, x, s} SvT{y, c2}:
+          SvT{C.TMat{k, x, y, s}, c2}
+        case KEql1{b, A, s, +d} SvT{x, c2}:
+          snf.go(p, w, cm.off(), SjK{KEql2{x, A, s, d}, snf.go(p, w, c2, SjT{b, d})})
+        case KEql2{x, A, s, d} SvT{y, c2}:
+          snf.go(p, w, cm.off(), SjK{KEql3{x, y, s}, snf.go(p, w, c2, SjT{A, d})})
+        case KEql3{x, y, s} SvT{z, c2}:
+          SvT{C.TEql{x, y, z, s}, c2}
+        case KRwt1{m, f, s, +d} SvT{x, c2}:
+          snf.go(p, w, cm.off(), SjK{KRwt2{x, f, s, d}, snf.go(p, w, c2, SjT{m, d})})
+        case KRwt2{x, f, s, d} SvT{y, c2}:
+          snf.go(p, w, cm.off(), SjK{KRwt3{x, y, s}, snf.go(p, w, c2, SjT{f, d})})
+        case KRwt3{x, y, s} SvT{z, c2}:
+          SvT{C.TRwt{x, y, z, s}, c2}
+        case _ SvT{x, c2}:
+          SvT{C.THol{"bendbis: unreachable (an snf frame and its child)", C.NoSp{}}, c2}
+        case _ SvL{ts, c2}:
+          SvT{C.THol{"bendbis: unreachable (an snf frame and its child)", C.NoSp{}}, c2}
     case 1n+p SjW{t, +d}:
       match t:
         case H.HTyp{g, s}:
-          SvT{C.TTyp{sv.t(snf.go(p, w, SjT{g, d})), s}}
+          snf.go(p, w, cm.off(), SjK{KTyp{s}, snf.go(p, w, cm, SjT{g, d})})
         case H.HMin{a, b, s}:
-          +x = sv.t(snf.go(p, w, SjT{a, d}))
-          SvT{C.TMin{x, sv.t(snf.go(p, w, SjT{b, d})), s}}
-        case H.HAll{q, +k, i, A, cl, s}:
-          +x = sv.t(snf.go(p, w, SjT{A, d}))
-          SvT{C.TAll{q, k, d, x, sv.t(snf.go(p, w, SjT{apc(w.real(w), cl, H.HVar{k, d, C.NoSp{}}), (d + 1 : U32)})), s}}
+          snf.go(p, w, cm.off(), SjK{KMin1{b, s, d}, snf.go(p, w, cm, SjT{a, d})})
+        case H.HAll{q, k, i, A, cl, s}:
+          snf.go(p, w, cm.off(), SjK{KAll1{q, k, cl, s, d}, snf.go(p, w, cm, SjT{A, d})})
         case H.HLam{+k, i, cl, s, q}:
-          SvT{C.TLam{k, d, sv.t(snf.go(p, w, SjT{apc(w.real(w), cl, H.HVar{k, d, C.NoSp{}}), (d + 1 : U32)})), s, C.QL{}}}
+          snf.go(p, w, cm.off(), SjK{KLam{k, d, s}, snf.go(p, w, cm, SjT{apc(w.real(w), cl, H.HVar{k, d, C.NoSp{}}), (d + 1 : U32)})})
         case H.HApp{f, x, s}:
           match f:
             case H.HRef{k, u, b}:
-              SvT{C.TApp{C.TRef{k, u, b}, sv.t(snf.go(p, w, SjT{x, d})), s}}
+              snf.go(p, w, cm.off(), SjK{KAppR{k, u, b, s}, snf.go(p, w, cm, SjT{x, d})})
             case f:
-              +y = sv.t(snf.go(p, w, SjT{f, d}))
-              SvT{C.TApp{y, sv.t(snf.go(p, w, SjT{x, d})), s}}
+              snf.go(p, w, cm.off(), SjK{KApp1{x, s, d}, snf.go(p, w, cm, SjT{f, d})})
         case H.HAdt{k, xs, r, s}:
-          SvT{C.TAdt{k, sv.ts(snf.go(p, w, SjL{xs, d})), r, s}}
+          snf.go(p, w, cm.off(), SjK{KAdt{k, r, s}, snf.go(p, w, cm, SjL{xs, d})})
         case H.HCtr{k, xs, s}:
-          SvT{C.TCtr{k, sv.ts(snf.go(p, w, SjL{xs, d})), s}}
+          snf.go(p, w, cm.off(), SjK{KCtr{k, s}, snf.go(p, w, cm, SjL{xs, d})})
         case H.HMat{k, h, m, s}:
-          +x = sv.t(snf.go(p, w, SjT{h, d}))
-          SvT{C.TMat{k, x, sv.t(snf.go(p, w, SjT{m, d})), s}}
+          snf.go(p, w, cm.off(), SjK{KMat1{k, m, s, d}, snf.go(p, w, cm, SjT{h, d})})
         case H.HEql{a, b, A, s}:
-          +x = sv.t(snf.go(p, w, SjT{a, d}))
-          +y = sv.t(snf.go(p, w, SjT{b, d}))
-          SvT{C.TEql{x, y, sv.t(snf.go(p, w, SjT{A, d})), s}}
+          snf.go(p, w, cm.off(), SjK{KEql1{b, A, s, d}, snf.go(p, w, cm, SjT{a, d})})
         case H.HRwt{e, m, f, s}:
-          +x = sv.t(snf.go(p, w, SjT{e, d}))
-          +y = sv.t(snf.go(p, w, SjT{m, d}))
-          SvT{C.TRwt{x, y, sv.t(snf.go(p, w, SjT{f, d})), s}}
+          snf.go(p, w, cm.off(), SjK{KRwt1{m, f, s, d}, snf.go(p, w, cm, SjT{e, d})})
         case H.HVar{k, i, s}:
-          SvT{C.TVar{k, i, s}}
+          SvT{C.TVar{k, i, s}, cm}
         case H.HRef{k, s, b}:
-          SvT{C.TRef{k, s, b}}
+          SvT{C.TRef{k, s, b}, cm}
         case H.HQnt{s}:
-          SvT{C.TQnt{s}}
+          SvT{C.TQnt{s}, cm}
         case H.HQua{q, s}:
-          SvT{C.TQua{q, s}}
+          SvT{C.TQua{q, s}, cm}
         case H.HNat{v, s}:
-          SvT{C.TNat{v, s}}
+          SvT{C.TNat{v, s}, cm}
         case H.HU32{v, s}:
-          SvT{C.TU32{v, s}}
+          SvT{C.TU32{v, s}, cm}
         case H.HF32{v, s}:
-          SvT{C.TF32{v, s}}
+          SvT{C.TF32{v, s}, cm}
         case H.HStr{v, s}:
-          SvT{C.TStr{v, s}}
+          SvT{C.TStr{v, s}, cm}
         case H.HEfq{s}:
-          SvT{C.TEfq{s}}
+          SvT{C.TEfq{s}, cm}
         case H.HRfl{s}:
-          SvT{C.TRfl{s}}
+          SvT{C.TRfl{s}, cm}
         case H.HHol{k, s}:
-          SvT{C.THol{k, s}}
+          SvT{C.THol{k, s}, cm}
         case _:
-          SvT{C.THol{"bendbis: snf met an unreduced node", C.NoSp{}}}
+          SvT{C.THol{"bendbis: snf met an unreduced node", C.NoSp{}}, cm}
 
 def snfl(+w: W, h: H.H, d: U32) -> C.Tm:
-  sv.t(snf.go(FUEL(), w, SjT{h, d}))
+  sv.t(snf.go(FUEL(), w, cm.new(), SjT{h, d}))
 
 # term_compare
 # ------------

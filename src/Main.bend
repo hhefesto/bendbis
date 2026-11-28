@@ -7,6 +7,7 @@ import ./Err.bend as E
 import ./Load.bend as Ld
 import ./Gate.bend as G
 import ./Gate2.bend as G2
+import ./Lower.bend as Lw
 
 # bendbis: Bend implemented in Bend. Copyright 2026 HigherOrderCO (upstream
 # bendlang/bend) and hhefesto; Apache-2.0, see LICENSE and NOTICE.
@@ -18,9 +19,12 @@ import ./Gate2.bend as G2
 #   bendbis parse FILE..   read each FILE as bend would (its imports, Base
 #                          once), print upstream's error or what it read
 #   bendbis gate2 UP OUT FILE..   milestone 2's gate (Gate2.bend)
+#   bendbis lower FILE     G(FILE): the file with bendbis's additions
+#                          lowered to upstream Bend (Lower.bend)
 #
 # The environment: BENDBIS_BASE, the base.bend to read (default
-# $HOME/src/bend2-upstream/bend2/base.bend); BEND_LIB as bend reads it.
+# $HOME/src/bend2-upstream/bend2/base.bend); BEND_LIB as bend reads it;
+# BENDBIS_LIB, the directory of F64.bend (default $HOME/src/bendbis/lib).
 
 def env.or(r: Result<&1, &1, U32 & String, String>, d: String) -> String:
   match r:
@@ -127,7 +131,7 @@ def main.parse(fs: List<String>, c: Cfg) -> IO(Unit):
         main.parse.go(base.err(br), fs, Cfg{cwd, bp, lib}, base.of(br))
 
 def USAGE() -> String:
-  "usage: bendbis FILE --check-only\n       bendbis parse FILE..\n       bendbis gate2 UPDIR OUTDIR FILE..\n       bendbis gate1 UPDIR OUTDIR FILE.. (BENDBIS_RT_CAP: the round trip's term size cap)\n       bendbis blocks MD STEM (each ```python block of MD as STEM_NN.bend)"
+  "usage: bendbis FILE --check-only\n       bendbis lower FILE\n       bendbis parse FILE..\n       bendbis gate2 UPDIR OUTDIR FILE..\n       bendbis gate1 UPDIR OUTDIR FILE.. (BENDBIS_RT_CAP: the round trip's term size cap)\n       bendbis blocks MD STEM (each ```python block of MD as STEM_NN.bend)"
 
 def gate1.base(e: Maybe<&2, String>, fs: List<String>, c: Cfg, base: L.Bk, +cap: U32) -> IO(Unit):
   match e fs c:
@@ -147,7 +151,28 @@ def main.gate1(fs: List<String>, c: Cfg) -> IO(Unit):
         gate1.base(base.err(br), fs, Cfg{cwd, bp, lib}, base.of(br), Maybe.default(&2, U32, U32.read(cs), 2000000))
 
 def main.code(+cmd: String) -> Nat:
-  Bool.pick(Nat, String.eq(cmd, "parse"), 1n, Bool.pick(Nat, String.eq(cmd, "gate1"), 2n, Bool.pick(Nat, String.eq(cmd, "blocks"), 3n, Bool.pick(Nat, String.eq(cmd, "gate2"), 4n, 0n))))
+  Bool.pick(Nat, String.eq(cmd, "parse"), 1n, Bool.pick(Nat, String.eq(cmd, "gate1"), 2n, Bool.pick(Nat, String.eq(cmd, "blocks"), 3n, Bool.pick(Nat, String.eq(cmd, "gate2"), 4n, Bool.pick(Nat, String.eq(cmd, "lower"), 5n, 0n)))))
+
+# G(FILE) on stdout
+def main.lower.out(mb: Maybe<&2, List<&2, U32>>, +real: String, lib: String) -> IO(Unit):
+  match mb:
+    case None{}:
+      IO.die(Unit, 1, "bendbis: no such file: " ++ real)
+    case Some{bytes}:
+      IO.write(T.str(Lw.lower(T.of_bytes(bytes), T.units(Pa.p.relative(Pa.p.dir(real), lib)))))
+
+def main.lower.at(+real: String) -> IO(Unit):
+  do IO<Unit>:
+    mb : Maybe<&2, List<&2, U32>> <- Ld.slurp(real)
+    lib : String <- Lw.f64.path()
+    main.lower.out(mb, real, lib)
+
+def main.lower(fs: List<String>, c: Cfg) -> IO(Unit):
+  match fs c:
+    case Con{f, Nil{}} Cfg{cwd, bp, lib}:
+      main.lower.at(Pa.p.resolve(cwd, f))
+    case _ _:
+      IO.die(Unit, 2, USAGE())
 
 def main.blocks(fs: List<String>) -> IO(Unit):
   match fs:
@@ -178,6 +203,8 @@ def main.cmd(k: Nat, fs: List<String>, c: Cfg) -> IO(Unit):
       main.blocks(fs)
     case 4n:
       main.gate2(fs, c)
+    case 5n:
+      main.lower(fs, c)
     case _:
       IO.die(Unit, 2, USAGE())
 

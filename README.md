@@ -106,6 +106,32 @@ proof of False").
 reads it. Milestone 1's gate driver is `gate/m1.sh`; milestone 2's runs
 `gate/m2file.sh` on each file.
 
+## F64, bendbis's first addition
+
+What ana needs beyond upstream Bend is added to bendbis, each addition
+delimited by laws (DESIGN.md, "bend and bendbis: the adjunction"). The
+first is IEEE 754 binary64:
+
+    import Base
+    import F64                     # bendbis's; upstream refuses it
+
+    def area(+r: F64.F64) -> F64.F64:
+      (3.141592653589793d * r * r : F64.F64)
+
+    ./bendbis area.bend --check-only   # bendbis reads it as G(area.bend)
+    ./bendbis lower area.bend          # G(area.bend): plain Bend that
+                                       # upstream bend checks and runs
+
+G (`src/Lower.bend`) turns `import F64` into an import of `lib/F64.bend`
+(the operations in plain Bend, exactly rounded, over Base only; with
+`lib/SPEC.bend`, the standard's definition, `lib/LAWS.bend`, proven, and
+`lib/OPEN.bend`, stated) and each literal `1.5d` into its bits. It is the
+identity on every program upstream has. `BENDBIS_LIB` names the directory
+of `F64.bend` (default `$HOME/src/bendbis/lib`). The gates:
+`gate/adj.sh` (F, eta, and G on `lib/tests/native/`) and
+`lib/tests/run.zsh BEND N OUT` (F64.bend's arithmetic and its decimal
+literals against the machine's double).
+
 ## Credits
 
 bendbis exists because of [Bend](https://github.com/bendlang/bend), by

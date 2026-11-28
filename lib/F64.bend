@@ -740,3 +740,140 @@ def to_f32.v(x: Fv) -> U32:
 # to the nearest F32, ties to even
 def to_f32(x: F64) -> F32:
   f32.of_bits(to_f32.v(view(x)))
+
+# Decimals: a literal's value, rounded once
+# -----------------------------------------
+
+# digits (character codes '0' to '9') to a big natural
+def dec.big(ds: List<&2, U32>, acc: List<&2, U32>) -> List<&2, U32>:
+  match ds:
+    case Nil{}:
+      acc
+    case Con{d, t}:
+      dec.big(t, big.muladd(acc, 10, (d - 48 : U32)))
+
+# the count of digits past the leading zeros
+def dec.sig(ds: List<&2, U32>) -> U32:
+  match ds:
+    case Nil{}:
+      0
+    case Con{48, t}:
+      dec.sig(t)
+    case Con{d, t}:
+      (1 + U32.from_nat(List.length(&2, U32, t)) : U32)
+
+# an exponent's digits, held at 100000 past 10000 (any exponent past 400
+# decides the same as 100000)
+def dec.exp(ds: List<&2, U32>, +acc: U32) -> U32:
+  match ds:
+    case Nil{}:
+      acc
+    case Con{d, t}:
+      dec.exp(t, Bool.pick(U32, U32.is_gt(acc, 10000), 100000, ((acc * 10 : U32) + (d - 48 : U32) : U32)))
+
+# acc * 5^k
+def big.pow5(k: Nat, acc: List<&2, U32>) -> List<&2, U32>:
+  match k:
+    case 0n:
+      acc
+    case 1n+p:
+      big.pow5(p, big.muladd(acc, 5, 0))
+
+# d * 10^(e10 - OFF) for e10 >= OFF: d * 5^E * 2^E, exact, rounded once
+def dec.up(d: List<&2, U32>, +e10: U32) -> F64:
+  round64(0, big.mul(d, big.pow5(U32.to_nat((e10 - OFF() : U32)), big.one())), e10)
+
+# a / b * 2^(e - OFF) by its quotient's bits and a sticky bit (as div)
+def dec.down.q(+e: U32, d: Qr) -> F64:
+  match d:
+    case Qr{q, r}:
+      round64(0, big.add(big.shl(1, q), Bool.pick(List<&2, U32>, big.is_zero(r), Nil{}, big.one())), e)
+
+def dec.down.at(+a: List<&2, U32>, +b: List<&2, U32>, +e: U32) -> F64:
+  dec.down.q(e, big.divmod(a, b, U32.to_nat(((big.bits(a) - big.bits(b) : U32) + 1 : U32))))
+
+# d * 10^-k = d / 5^k * 2^-k for k = OFF - e10: d * 2^s / 5^k has 57 bits
+# or more, so its quotient and a sticky bit round as the exact value does
+def dec.down.s(d: List<&2, U32>, b: List<&2, U32>, +e10: U32, +s: U32) -> F64:
+  dec.down.at(big.shl(s, d), b, ((e10 - s : U32) - 1 : U32))
+
+def dec.down(+d: List<&2, U32>, +e10: U32) -> F64:
+  +b = big.pow5(U32.to_nat((OFF() - e10 : U32)), big.one())
+  +bd = big.bits(d)
+  +bn = (57 + big.bits(b) : U32)
+  dec.down.s(d, b, e10, Bool.pick(U32, U32.is_gt(bn, bd), (bn - bd : U32), 0))
+
+def dec.fin(c: Bool, d: List<&2, U32>, +e10: U32) -> F64:
+  match c:
+    case True{}:
+      dec.up(d, e10)
+    case False{}:
+      dec.down(d, e10)
+
+# past 10^309 infinity, below 10^-324 zero (under half the least
+# subnormal, 4.9e-324), else the exact value rounded
+def dec.range(hi: Bool, lo: Bool, d: List<&2, U32>, +e10: U32) -> F64:
+  match hi lo:
+    case True{} _:
+      inf(0)
+    case False{} True{}:
+      zero(0)
+    case False{} False{}:
+      dec.fin(U32.is_ge(e10, OFF()), d, e10)
+
+# d * 10^(e10 - OFF), d with nd significant digits: in [10^(nd - 1 + E),
+# 10^(nd + E))
+def dec.go(d: List<&2, U32>, +nd: U32, +e10: U32) -> F64:
+  match d:
+    case Nil{}:
+      zero(0)
+    case d:
+      +u = (e10 + nd : U32)
+      dec.range(U32.is_ge(u, (OFF() + 310 : U32)), U32.is_le(u, (OFF() - 324 : U32)), d, e10)
+
+def of_dec.e(xneg: Bool, +xe: U32, +lf: U32) -> U32:
+  match xneg:
+    case True{}:
+      ((OFF() - xe : U32) - lf : U32)
+    case False{}:
+      ((OFF() + xe : U32) - lf : U32)
+
+# the decimal I.F e X (e -X when xneg), its parts as written (digit
+# character codes): the nearest F64, ties to even; past the greatest
+# finite value plus half its ulp, infinity (a literal refuses it)
+def of_dec(i: List<&2, U32>, +f: List<&2, U32>, xneg: Bool, x: List<&2, U32>) -> F64:
+  +ds = List.append(&2, U32, i, f)
+  dec.go(dec.big(ds, Nil{}), dec.sig(ds), of_dec.e(xneg, dec.exp(x, 0), U32.from_nat(List.length(&2, U32, f))))
+
+def is_inf(x: F64) -> Bool:
+  match x:
+    case F64{+hi, lo}:
+      Bool.and(U32.is_eq((hi .&. 2147483647 : U32), 2146435072), U32.is_eq(lo, 0))
+
+# The operators: (a + b : F64.F64) is F64.F64.add(a, b) through the
+# alias, so each operator's method is the operation itself
+# ----------------------------------------------------------------------
+
+def F64.add(a: F64, b: F64) -> F64:
+  add(a, b)
+
+def F64.sub(a: F64, b: F64) -> F64:
+  sub(a, b)
+
+def F64.mul(a: F64, b: F64) -> F64:
+  mul(a, b)
+
+def F64.div(a: F64, b: F64) -> F64:
+  div(a, b)
+
+def F64.is_lt(a: F64, b: F64) -> Bool:
+  is_lt(a, b)
+
+def F64.is_le(a: F64, b: F64) -> Bool:
+  is_le(a, b)
+
+def F64.is_gt(a: F64, b: F64) -> Bool:
+  is_gt(a, b)
+
+def F64.is_ge(a: F64, b: F64) -> Bool:
+  is_ge(a, b)

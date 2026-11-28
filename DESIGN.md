@@ -156,15 +156,93 @@ ana d4cafc4, bend 2.0.39):
 4. *Upstream's own unchecked parts* ana leans on: Base's @unsafe
    Array.fork (Bang/Gemm.bend and Bang/GlaScan.bend) and `!`.
 
-U64 exists nowhere yet; when an addition is made it gets the same four
-things as F64, before any program uses it.
+The user, 11-27, on these two readings of the functors: "F includes
+upstream programs; G translates bendbis's additions back to plain Bend"
+(confirmed); and on additions: "I said U64, but might be F64 what I was
+referring to. Whatever ana needs should be what gets implemented extra to
+what regular bend has." So the additions are what ana needs, each with
+the four things above: F64 first; U64 only if ana comes to need it (it
+does not today: ana's clock is a Nat, its counters U32).
 
-**Next, in order.** (a) F64 native in bendbis: `import F64` (upstream
-refuses a bare import other than Base, so F stays an inclusion), the
-literal `1.5d`, the checker computing F64's operations with F64.bend's
-code, G as `src/Lower.bend`, and the gates: G is the identity on the
-2,161 files, G(G(Q)) = G(Q), and Q's checks against G(Q)'s under
-upstream. (b) F32 delimited: SPEC's F32 operations, and laws stating
+**(a) F64 in bendbis: done 2026-11-27.** What a bendbis program writes:
+
+    import Base
+    import F64                     # the bare import upstream refuses
+
+    def area(+r: F64.F64) -> F64.F64:
+      (3.141592653589793d * r * r : F64.F64)
+
+The type is `F64.F64`, the operations `F64.add`, `F64.sqrt`, ...
+(`lib/F64.bend` under the alias F64), the operators `+ - * / < <= > >=`
+through `(.. : F64.F64)` (the library's `F64.add` .. `F64.is_ge`, each
+the operation itself), and a literal is F32's with a `d` after it and no
+name character after the `d`: `1.5d`, `1.0e-3d`, `0.1d`, the nearest F64
+to the decimal, ties to even (`F64.of_dec`: the exact rational rounded
+once; a literal past the greatest finite F64 is left as written, and
+upstream then refuses it as an F32 literal out of range).
+
+- *G is `src/Lower.bend`*, on a file's text: a header line `import F64`
+  (spaces and a comment after it at most) becomes `import REL as F64`,
+  REL the path from the file's directory to `$BENDBIS_LIB/F64.bend`
+  (default `$HOME/src/bendbis/lib`; upstream's import rule needs REL's
+  segments to be plain names, so the lib may not sit under a dot-directory
+  or the nix store); past the header, each `d` literal in code (not in a
+  comment, a string or a char, not inside a name) becomes
+  `F64.lit(HI, LO)`. A file with no bare `import F64` comes back as it
+  is: that is eta. `bendbis lower FILE` prints G(FILE).
+- *bendbis reads Q as G(Q)*: the loader lowers every file it reads, so
+  bendbis's checks of Q are its checks of G(Q), by construction, and the
+  messages quote G(Q)'s lines. In the checker an F64 is its definition
+  (eps is the identity); a native F64, the machine's double, comes with
+  bendbis's compiler (milestone 5), and then eps's squares are laws to
+  prove or gate.
+- *Homomorphism, at the text*: G moves no token but an addition's leaves
+  (the bare import, a `d` literal), so the term bendbis parses from G(Q)
+  is Q's with each leaf replaced: the fold over the term algebra of 1.
+- *Gates*, `gate/adj.sh` (one machine, upstream at the pin for every
+  set), measured below: F again (milestone 2's gate, byte for byte, with
+  the loader lowering); eta (G the identity on every file, byte for
+  byte); and on bendbis's own programs (`lib/tests/native/`: laws by
+  computation, a failing law, the operators, a literal out of range, no
+  import, the import twice, the lexer's corners): G(Q) has no bare import
+  left, G(G(Q)) = G(Q), bendbis on Q prints what upstream prints on G(Q),
+  byte for byte, exit codes too, and upstream refuses Q itself.
+- *F64.of_dec's gate*: `lib/tests/dec.bend` against Oracle.hs's reading
+  of the same decimal text (GHC's `read :: Double`: the exact rational,
+  rounded to nearest, ties to even), on chosen decimals (the range's
+  ends, the halfway point to the least subnormal and its neighbours,
+  1e100000 and 1e-100000),
+  random ones over the whole exponent range and past it, the exact
+  midpoints between neighbouring doubles (normal and subnormal: up to
+  770 digits) with the decimals one unit below and above each, and long
+  ones: N = 50,000, 250,025 lines, 0 differ; two mutants (the sticky bit
+  dropped; 50 bits of quotient, not 57) differ on 643 and 1,498 of
+  10,025.
+
+`gate/adj.sh`, olimpo (16 threads, 12 files at a time), 2026-11-27,
+upstream at the pin (0e2f38f7, HEAD for ana's files too), ana at d4cafc4:
+
+| gate | files | as required | otherwise |
+|---|---|---|---|
+| F: bendbis --check-only as upstream, byte for byte (tests and base.bend) | 1,880 | 1,880 | 0 |
+| F: the guide's examples | 28 | 28 | 0 |
+| F: ana's bend/ (slowest: CorpusV2.bend, 118.8 s) | 253 | 253 | 0 |
+| eta: `bendbis lower FILE` is FILE, byte for byte | 2,161 | 2,161 | 0 |
+| G on lib/tests/native: bendbis on Q as upstream on G(Q); no bare import in G(Q); G(G(Q)) = G(Q); upstream refuses Q | 7 | 7 | 0 |
+
+On the way, a speed bug: bendbis's term_snf (what an error prints) shared
+nothing, so printing the failing side of an F64 law reduced each shared
+value once per path to it: `lib/tests/native/fail.bend` took about 550 s
+(by difference, in a run of all seven; a twin whose sides are U32s did
+not finish in 120 s), upstream 0.4 s. term_snf now keeps one store of cells, as term_compare
+does, dropped when the normal form is done: 0.98 s, the same bytes.
+Still slower than upstream on F64's heavy laws by computation (`F64.div`
+6.9 s against 1.2 s, `F64.sqrt` 38.7 s against 4.5 s, each one law in
+its own file): the store is a trie (`ct.get` 16% of the samples) and the
+runtime's reference counting (`span_fade` and `term_drop`, 52%); R2 and
+R4 below.
+
+**Next, in order.** (b) F32 delimited: SPEC's F32 operations, and laws stating
 Base's natives equal them: axioms to upstream (its natives are opaque),
 held by running its C and JS targets against SPEC on inputs, and theorems
 in bendbis once its F32 natives are F64.bend's code. (c) The proofs of

@@ -6,6 +6,7 @@ import ./Path.bend as Pa
 import ./Err.bend as E
 import ./Parse.bend as Ps
 import ./PHelp.bend as X
+import ./Lower.bend as Lw
 
 # bendbis: Bend implemented in Bend. Copyright 2026 HigherOrderCO (upstream
 # bendlang/bend) and hhefesto; Apache-2.0, see LICENSE and NOTICE.
@@ -533,6 +534,7 @@ type LJ is Data:
   LjRead{bytes: List<&2, U32>, file: String, ns: String, top: Maybe<&2, String>, sp: Maybe<&2, C.Er>}
   LjSeen{n: Nat, bytes: List<&2, U32>, file: String, ns: String, top: Maybe<&2, String>, sp: Maybe<&2, C.Er>}
   LjText{txt: List<&2, U32>, file: String, ns: String, top: Maybe<&2, String>, sp: Maybe<&2, C.Er>}
+  LjLow{txt: List<&2, U32>, file: String, ns: String, top: Maybe<&2, String>}
   LjLines{fc: Fc, ls: List<&2, List<&2, U32>>, at: U32, out: List<&2, List<&2, U32>>}
   LjLine{role: Nat, fc: Fc, l: List<&2, U32>, ls: List<&2, List<&2, U32>>, at: U32, out: List<&2, List<&2, U32>>}
   LjIm{im: Im, fc: Fc, l: List<&2, U32>, ls: List<&2, List<&2, U32>>, at: U32, out: List<&2, List<&2, U32>>}
@@ -554,7 +556,13 @@ def ld.go(+fuel: Nat, j: LJ, +ld: Ld) -> IO(LR):
           lok(ld)
         case _:
           ld.go(p, LjText{T.of_bytes(bytes), file, ns, top, sp}, ld)
+    # the text lowered (Lower.bend's G: bendbis's additions to upstream
+    # Bend; the identity on a file with no `import F64`), then its lines
     case 1n+p LjText{+txt, +file, ns, top, sp}:
+      do IO<LR>:
+        lib : String <- Lw.f64.path()
+        ld.go(p, LjLow{Lw.lower(txt, T.units(Pa.p.relative(Pa.p.dir(file), lib))), file, ns, top}, ld)
+    case 1n+p LjLow{+txt, +file, ns, top}:
       +dir = Pa.p.dir(file)
       ld.go(p, LjLines{Fc{file, dir, Maybe.default(&2, String, top, dir), ns, txt, Nil{}}, line.split(txt, Nil{}, Nil{}), 0, Nil{}}, ld.mark(file, ld))
 

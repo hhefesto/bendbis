@@ -46,8 +46,18 @@ isNaNBits :: String -> (Word32, Word32) -> Bool
 isNaNBits "d2s" (_, l) = isNaN (castWord32ToFloat l)
 isNaNBits _ (h, l) = isNaN (d64 h l)
 
+-- a dec line (dec.bend): the decimal I.F e X read as the machine reads it
+-- (GHC's read: the exact rational, then fromRational, rounded to nearest,
+-- ties to even; past the range Infinity or 0)
+decimal :: String -> String -> String -> Double
+decimal i f x = read (i ++ "." ++ (if f == "-" then "0" else f) ++ "e" ++ x)
+
 check :: String -> Maybe String
 check line = case words line of
+  ["dec", i, f, x, rh, rl] ->
+    let want = w64 (decimal i f x)
+     in if (hex rh, hex rl) == want then Nothing
+        else Just (line ++ "   want " ++ showHex (fst want) "" ++ " " ++ showHex (snd want) "")
   [op, ah, al, bh, bl, rh, rl] ->
     let a = d64 (hex ah) (hex al)
         b = d64 (hex bh) (hex bl)
