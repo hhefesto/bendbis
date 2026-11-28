@@ -220,8 +220,15 @@ def h.is_cell(h: H) -> Bool:
 
 # a value found for a variable takes the occurrence's span when it has
 # none of its own (and is no share cell)
+def h.adopt.at(z: Bool, h: H, s: C.Sp) -> H:
+  match z:
+    case True{}:
+      h
+    case False{}:
+      h.with_sp(h, s)
+
 def h.adopt(+h: H, +s: C.Sp) -> H:
-  Bool.pick(H, Bool.or(Bool.or(C.sp.has(h.s(h)), Bool.not(C.sp.has(s))), h.is_cell(h)), h, h.with_sp(h, s))
+  h.adopt.at(Bool.or(Bool.or(C.sp.has(h.s(h)), Bool.not(C.sp.has(s))), h.is_cell(h)), h, s)
 
 # Environments
 # ------------
@@ -407,6 +414,12 @@ type HJ is Data:
   JLs2{r: HR, ts: List<&2, Lt>, acc: List<&2, C.Tm>}
   JLB{r: HR, d: U32}
   JLk{sh: Lsh, r: HR}
+  JH1{r: HR, sh: Sh}
+  JH2{a: HR, b: HR, sh: Sh}
+  JH3{a: HR, b: HR, c: HR, sh: Sh}
+  JL1{r: HR, sh: Lsh}
+  JL2{a: HR, b: HR, sh: Lsh}
+  JL3{a: HR, b: HR, c: HR, sh: Lsh}
 
 def bnd.metas(bs: List<&2, C.Bnd>) -> List<&2, Bm>:
   match bs:
@@ -491,6 +504,72 @@ def h.build(sh: Sh, hs: List<&2, H>) -> H:
       HLet{hb.zip(ms, vs), ClL{ev, ms, f}, s}
     case _ _:
       HEfq{C.NoSp{}}
+
+# h.build for a node of one, two or three parts, read straight into the
+# node (no list of parts: JH1..JH3 hold the parts' results; the first
+# error, left to right, is the answer, as JHs's)
+def h.b1(sh: Sh, a: H) -> H:
+  match sh:
+    case ShTyp{s}:
+      HTyp{a, s}
+    case ShAll{q, k, +i, ev, B, s}:
+      HAll{q, k, i, a, ClH{ev, i, B}, s}
+    case _:
+      HEfq{C.NoSp{}}
+
+def h.b2(sh: Sh, a: H, b: H) -> H:
+  match sh:
+    case ShMin{s}:
+      HMin{a, b, s}
+    case ShMat{k, s}:
+      HMat{k, a, b, s}
+    case ShAnn{s}:
+      HAnn{a, b, s}
+    case _:
+      HEfq{C.NoSp{}}
+
+def h.b3(sh: Sh, a: H, b: H, c: H) -> H:
+  match sh:
+    case ShEql{s}:
+      HEql{a, b, c, s}
+    case ShRwt{s}:
+      HRwt{a, b, c, s}
+    case _:
+      HEfq{C.NoSp{}}
+
+# t.build's, the same way (JL1..JL3)
+def t.b1(sh: Lsh, a: C.Tm) -> C.Tm:
+  match sh:
+    case LTyp{s}:
+      C.TTyp{a, s}
+    case LLam{k, d, s, q}:
+      C.TLam{k, d, a, s, q}
+    case _:
+      C.TEfq{C.NoSp{}}
+
+def t.b2(sh: Lsh, a: C.Tm, b: C.Tm) -> C.Tm:
+  match sh:
+    case LMin{s}:
+      C.TMin{a, b, s}
+    case LAll{q, k, d, s}:
+      C.TAll{q, k, d, a, b, s}
+    case LApp{s}:
+      C.TApp{a, b, s}
+    case LMat{k, s}:
+      C.TMat{k, a, b, s}
+    case LAnn{s}:
+      C.TAnn{a, b, s}
+    case _:
+      C.TEfq{C.NoSp{}}
+
+def t.b3(sh: Lsh, a: C.Tm, b: C.Tm, c: C.Tm) -> C.Tm:
+  match sh:
+    case LEql{s}:
+      C.TEql{a, b, c, s}
+    case LRwt{s}:
+      C.TRwt{a, b, c, s}
+    case _:
+      C.TEfq{C.NoSp{}}
 
 # the last of a Let's lowered parts is its body
 def let.body(ts: List<&2, C.Tm>, n: U32) -> C.Tm:
@@ -641,19 +720,19 @@ def hm.go(+fuel: Nat, +txt: List<&2, U32>, j: HJ) -> HR:
         case C.TLet{+bs, f, s}:
           hm.go(p, txt, JHk{hm.go(p, txt, JHs{bnd.vals(bs), ev, Nil{}}), ShLet{bnd.metas(bs), ev, f, s}})
         case C.TTyp{g, s}:
-          hm.go(p, txt, JHk{hm.go(p, txt, JHs{[g], ev, Nil{}}), ShTyp{s}})
+          hm.go(p, txt, JH1{hm.go(p, txt, JH{g, ev}), ShTyp{s}})
         case C.TQnt{s}:
           HRH{HQnt{s}}
         case C.TQua{q, s}:
           HRH{HQua{q, s}}
         case C.TMin{a, b, s}:
-          hm.go(p, txt, JHk{hm.go(p, txt, JHs{[a, b], ev, Nil{}}), ShMin{s}})
+          hm.go(p, txt, JH2{hm.go(p, txt, JH{a, ev}), hm.go(p, txt, JH{b, ev}), ShMin{s}})
         case C.TAll{q, k, i, A, B, s}:
-          hm.go(p, txt, JHk{hm.go(p, txt, JHs{[A], ev, Nil{}}), ShAll{q, k, i, ev, B, s}})
+          hm.go(p, txt, JH1{hm.go(p, txt, JH{A, ev}), ShAll{q, k, i, ev, B, s}})
         case C.TLam{k, +i, f, s, q}:
           HRH{HLam{k, i, ClH{ev, i, f}, s, q}}
         case C.TApp{f, x, s}:
-          hm.go(p, txt, JHk{hm.go(p, txt, JHs{[f, x], ev, Nil{}}), ShApp{s}})
+          hm.go(p, txt, JH2{hm.go(p, txt, JH{f, ev}), hm.go(p, txt, JH{x, ev}), ShApp{s}})
         case C.TAdt{k, xs, r, s}:
           hm.go(p, txt, JHk{hm.go(p, txt, JHs{xs, ev, Nil{}}), ShAdt{k, r, s}})
         case C.TCtr{k, xs, s}:
@@ -667,19 +746,19 @@ def hm.go(+fuel: Nat, +txt: List<&2, U32>, j: HJ) -> HR:
         case C.TStr{v, s}:
           HRH{HStr{v, s}}
         case C.TMat{k, h, m, s}:
-          hm.go(p, txt, JHk{hm.go(p, txt, JHs{[h, m], ev, Nil{}}), ShMat{k, s}})
+          hm.go(p, txt, JH2{hm.go(p, txt, JH{h, ev}), hm.go(p, txt, JH{m, ev}), ShMat{k, s}})
         case C.TEfq{s}:
           HRH{HEfq{s}}
         case C.TEql{a, b, A, s}:
-          hm.go(p, txt, JHk{hm.go(p, txt, JHs{[a, b, A], ev, Nil{}}), ShEql{s}})
+          hm.go(p, txt, JH3{hm.go(p, txt, JH{a, ev}), hm.go(p, txt, JH{b, ev}), hm.go(p, txt, JH{A, ev}), ShEql{s}})
         case C.TRfl{s}:
           HRH{HRfl{s}}
         case C.TRwt{e, m, f, s}:
-          hm.go(p, txt, JHk{hm.go(p, txt, JHs{[e, m, f], ev, Nil{}}), ShRwt{s}})
+          hm.go(p, txt, JH3{hm.go(p, txt, JH{e, ev}), hm.go(p, txt, JH{m, ev}), hm.go(p, txt, JH{f, ev}), ShRwt{s}})
         case C.THol{k, s}:
           HRH{HHol{k, s}}
         case C.TAnn{x, A, s}:
-          hm.go(p, txt, JHk{hm.go(p, txt, JHs{[x, A], ev, Nil{}}), ShAnn{s}})
+          hm.go(p, txt, JH2{hm.go(p, txt, JH{x, ev}), hm.go(p, txt, JH{A, ev}), ShAnn{s}})
     case 1n+p JLs{ts, acc}:
       match ts:
         case Nil{}:
@@ -714,6 +793,68 @@ def hm.go(+fuel: Nat, +txt: List<&2, U32>, j: HJ) -> HR:
           HRE{e}
         case _:
           HRE{C.ErRaw{"bendbis: JLk"}}
+    case 1n+p JH1{r, sh}:
+      match r:
+        case HRH{a}:
+          HRH{h.b1(sh, a)}
+        case HRE{e}:
+          HRE{e}
+        case _:
+          HRE{C.ErRaw{"bendbis: JH1"}}
+    case 1n+p JH2{ra, rb, sh}:
+      match ra rb sh:
+        case HRH{f} HRH{x} ShApp{s}:
+          hm.go(p, txt, JBeta{f, x, s})
+        case HRH{a} HRH{b} sh:
+          HRH{h.b2(sh, a, b)}
+        case HRE{e} _ _:
+          HRE{e}
+        case _ HRE{e} _:
+          HRE{e}
+        case _ _ _:
+          HRE{C.ErRaw{"bendbis: JH2"}}
+    case 1n+p JH3{ra, rb, rc, sh}:
+      match ra rb rc:
+        case HRH{a} HRH{b} HRH{c}:
+          HRH{h.b3(sh, a, b, c)}
+        case HRE{e} _ _:
+          HRE{e}
+        case _ HRE{e} _:
+          HRE{e}
+        case _ _ HRE{e}:
+          HRE{e}
+        case _ _ _:
+          HRE{C.ErRaw{"bendbis: JH3"}}
+    case 1n+p JL1{r, sh}:
+      match r:
+        case HRT{a}:
+          HRT{t.b1(sh, a)}
+        case HRE{e}:
+          HRE{e}
+        case _:
+          HRE{C.ErRaw{"bendbis: JL1"}}
+    case 1n+p JL2{ra, rb, sh}:
+      match ra rb:
+        case HRT{a} HRT{b}:
+          HRT{t.b2(sh, a, b)}
+        case HRE{e} _:
+          HRE{e}
+        case _ HRE{e}:
+          HRE{e}
+        case _ _:
+          HRE{C.ErRaw{"bendbis: JL2"}}
+    case 1n+p JL3{ra, rb, rc, sh}:
+      match ra rb rc:
+        case HRT{a} HRT{b} HRT{c}:
+          HRT{t.b3(sh, a, b, c)}
+        case HRE{e} _ _:
+          HRE{e}
+        case _ HRE{e} _:
+          HRE{e}
+        case _ _ HRE{e}:
+          HRE{e}
+        case _ _ _:
+          HRE{C.ErRaw{"bendbis: JL3"}}
     case 1n+p JL{h, +d}:
       match h:
         case HVar{k, i, s}:
@@ -726,19 +867,19 @@ def hm.go(+fuel: Nat, +txt: List<&2, U32>, j: HJ) -> HR:
           +ms = hb.metas(bs)
           hm.go(p, txt, JLk{LLet{ms, d, s}, hm.go(p, txt, JLs{List.append(&2, Lt, hb.tasks(bs, d), [LtCL{cl, let.vars(ms, d), (d + U32.from_nat(List.length(&2, Bm, ms)) : U32)}]), Nil{}})})
         case HTyp{g, s}:
-          hm.go(p, txt, JLk{LTyp{s}, hm.go(p, txt, JLs{[LtH{g, d}], Nil{}})})
+          hm.go(p, txt, JL1{hm.go(p, txt, JL{g, d}), LTyp{s}})
         case HQnt{s}:
           HRT{C.TQnt{s}}
         case HQua{q, s}:
           HRT{C.TQua{q, s}}
         case HMin{a, b, s}:
-          hm.go(p, txt, JLk{LMin{s}, hm.go(p, txt, JLs{[LtH{a, d}, LtH{b, d}], Nil{}})})
+          hm.go(p, txt, JL2{hm.go(p, txt, JL{a, d}), hm.go(p, txt, JL{b, d}), LMin{s}})
         case HAll{q, +k, i, A, cl, s}:
-          hm.go(p, txt, JLk{LAll{q, k, d, s}, hm.go(p, txt, JLs{[LtH{A, d}, LtC{cl, HVar{k, d, C.NoSp{}}, (d + 1 : U32)}], Nil{}})})
+          hm.go(p, txt, JL2{hm.go(p, txt, JL{A, d}), hm.go(p, txt, JLB{hm.go(p, txt, JApply{cl, HVar{k, d, C.NoSp{}}}), (d + 1 : U32)}), LAll{q, k, d, s}})
         case HLam{+k, i, cl, s, q}:
-          hm.go(p, txt, JLk{LLam{k, d, s, q}, hm.go(p, txt, JLs{[LtC{cl, HVar{k, d, C.NoSp{}}, (d + 1 : U32)}], Nil{}})})
+          hm.go(p, txt, JL1{hm.go(p, txt, JLB{hm.go(p, txt, JApply{cl, HVar{k, d, C.NoSp{}}}), (d + 1 : U32)}), LLam{k, d, s, q}})
         case HApp{f, x, s}:
-          hm.go(p, txt, JLk{LApp{s}, hm.go(p, txt, JLs{[LtH{f, d}, LtH{x, d}], Nil{}})})
+          hm.go(p, txt, JL2{hm.go(p, txt, JL{f, d}), hm.go(p, txt, JL{x, d}), LApp{s}})
         case HAdt{k, xs, r, s}:
           hm.go(p, txt, JLk{LAdt{k, r, s}, hm.go(p, txt, JLs{lt.hs(xs, d), Nil{}})})
         case HCtr{k, xs, s}:
@@ -752,16 +893,16 @@ def hm.go(+fuel: Nat, +txt: List<&2, U32>, j: HJ) -> HR:
         case HStr{v, s}:
           HRT{C.TStr{v, s}}
         case HMat{k, a, m, s}:
-          hm.go(p, txt, JLk{LMat{k, s}, hm.go(p, txt, JLs{[LtH{a, d}, LtH{m, d}], Nil{}})})
+          hm.go(p, txt, JL2{hm.go(p, txt, JL{a, d}), hm.go(p, txt, JL{m, d}), LMat{k, s}})
         case HEfq{s}:
           HRT{C.TEfq{s}}
         case HEql{a, b, A, s}:
-          hm.go(p, txt, JLk{LEql{s}, hm.go(p, txt, JLs{[LtH{a, d}, LtH{b, d}, LtH{A, d}], Nil{}})})
+          hm.go(p, txt, JL3{hm.go(p, txt, JL{a, d}), hm.go(p, txt, JL{b, d}), hm.go(p, txt, JL{A, d}), LEql{s}})
         case HRfl{s}:
           HRT{C.TRfl{s}}
         case HRwt{e, m, f, s}:
-          hm.go(p, txt, JLk{LRwt{s}, hm.go(p, txt, JLs{[LtH{e, d}, LtH{m, d}, LtH{f, d}], Nil{}})})
+          hm.go(p, txt, JL3{hm.go(p, txt, JL{e, d}), hm.go(p, txt, JL{m, d}), hm.go(p, txt, JL{f, d}), LRwt{s}})
         case HHol{k, s}:
           HRT{C.THol{k, s}}
         case HAnn{x, A, s}:
-          hm.go(p, txt, JLk{LAnn{s}, hm.go(p, txt, JLs{[LtH{x, d}, LtH{A, d}], Nil{}})})
+          hm.go(p, txt, JL2{hm.go(p, txt, JL{x, d}), hm.go(p, txt, JL{A, d}), LAnn{s}})

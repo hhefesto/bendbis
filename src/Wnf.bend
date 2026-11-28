@@ -328,7 +328,11 @@ def cx.cm(r: Cx) -> Cm:
 
 # x in cell n, unless x is a cell already or z (cells off)
 def cell.of(+z: Bool, +n: U32, +x: H.H, +k: String) -> H.H:
-  Bool.pick(H.H, z, x, H.HVal{k, (CELL() + n : U32), H.h.s(x), x})
+  match z:
+    case True{}:
+      x
+    case False{}:
+      H.HVal{k, (CELL() + n : U32), H.h.s(x), x}
 
 def cell.next(+z: Bool, +n: U32) -> U32:
   Bool.pick(U32, z, n, (n + 1 : U32))
@@ -530,12 +534,19 @@ def run.count(n: Nat, frs: List<&2, Fr>, run: Nat) -> Nat:
     case _ _:
       run
 
+def lh.step.at(z: Bool, t: Lt, x: H.H, s: C.Sp, +n: U32) -> Lh:
+  match z:
+    case True{}:
+      LhNo{}
+    case False{}:
+      LhYes{LtApp{t, x, s}, (n - 1 : U32)}
+
 def lh.step(lhs: Lh, x: H.H, s: C.Sp) -> Lh:
   match lhs:
     case LhNo{}:
       LhNo{}
     case LhYes{t, +n}:
-      Bool.pick(Lh, U32.is_eq(n, 0), LhNo{}, LhYes{LtApp{t, x, s}, (n - 1 : U32)})
+      lh.step.at(U32.is_eq(n, 0), t, x, s, n)
 
 def lh.ext(fl: Lh, +k: String, +n: U32) -> Lh:
   match fl:
@@ -1046,19 +1057,30 @@ def q.eq(a: C.Q, b: C.Q) -> Bool:
     case _ _:
       False{}
 
-def strs.has(xs: List<&2, String>, +k: String) -> Bool:
-  match xs:
-    case Nil{}:
+# (the walks stop at the first answer: Bool.or/and would read the rest)
+def strs.has.go(xs: List<&2, String>, hit: Bool, +k: String) -> Bool:
+  match xs hit:
+    case _ True{}:
+      True{}
+    case Nil{} False{}:
       False{}
-    case Con{x, t}:
-      Bool.or(String.eq(x, k), strs.has(t, k))
+    case Con{x, t} False{}:
+      strs.has.go(t, String.eq(x, k), k)
+
+def strs.has(xs: List<&2, String>, +k: String) -> Bool:
+  strs.has.go(xs, False{}, k)
+
+def strs.sub.go(xs: List<&2, String>, ok: Bool, +ys: List<&2, String>) -> Bool:
+  match xs ok:
+    case _ False{}:
+      False{}
+    case Nil{} True{}:
+      True{}
+    case Con{x, t} True{}:
+      strs.sub.go(t, strs.has(ys, x), ys)
 
 def strs.sub(xs: List<&2, String>, +ys: List<&2, String>) -> Bool:
-  match xs:
-    case Nil{}:
-      True{}
-    case Con{x, t}:
-      Bool.and(strs.has(ys, x), strs.sub(t, ys))
+  strs.sub.go(xs, True{}, ys)
 
 def u32s.eq(xs: List<&2, U32>, ys: List<&2, U32>) -> Bool:
   match xs ys:
@@ -1079,6 +1101,14 @@ def cp.pairs(xs: List<&2, H.H>, ys: List<&2, H.H>, +d: U32) -> List<&2, Cp>:
 
 def hs.len(xs: List<&2, H.H>) -> U32:
   U32.from_nat(List.length(&2, H.H, xs))
+
+# cs.if(z, CsAll{cp.pairs(xs, ys, d)}), the pairs built only when z
+def cs.pairs.if(z: Bool, xs: List<&2, H.H>, ys: List<&2, H.H>, +d: U32) -> Cs:
+  match z:
+    case True{}:
+      CsAll{cp.pairs(xs, ys, d)}
+    case False{}:
+      CsFalse{}
 
 # f applied to n fresh variables from depth d on
 def apps(n: Nat, f: H.H, +d: U32) -> H.H:
@@ -1187,9 +1217,9 @@ def cmp.cases(+eq: Bool, +w: W, a: H.H, b: H.H, +d: U32) -> Cs:
     case H.HAdt{+k1, +xs1, +r1, s1} H.HAdt{+k2, +xs2, +r2, s2}:
       +ln = Bool.and(String.eq(k1, k2), U32.is_eq(hs.len(xs1), hs.len(xs2)))
       +rn = Bool.not(Bool.and(eq, Bool.not(Nat.is_eq(List.length(&2, String, r1), List.length(&2, String, r2)))))
-      cs.if(Bool.and(Bool.and(ln, rn), strs.sub(r2, r1)), CsAll{cp.pairs(xs1, xs2, d)})
+      cs.pairs.if(Bool.and(Bool.and(ln, rn), strs.sub(r2, r1)), xs1, xs2, d)
     case H.HCtr{+k1, +xs1, s1} H.HCtr{+k2, +xs2, s2}:
-      cs.if(Bool.and(String.eq(k1, k2), U32.is_eq(hs.len(xs1), hs.len(xs2))), CsAll{cp.pairs(xs1, xs2, d)})
+      cs.pairs.if(Bool.and(String.eq(k1, k2), U32.is_eq(hs.len(xs1), hs.len(xs2))), xs1, xs2, d)
     case H.HNat{+v1, s1} H.HNat{+v2, s2}:
       cs.bool(U32.is_eq(v1, v2))
     case H.HU32{+v1, s1} H.HU32{+v2, s2}:
@@ -1209,14 +1239,22 @@ def cmp.cases(+eq: Bool, +w: W, a: H.H, b: H.H, +d: U32) -> Cs:
     case _ _:
       CsFalse{}
 
+# lit_step(t) when z (a literal met by a constructor), else t
+def lit.if(z: Bool, t: H.H) -> H.H:
+  match z:
+    case True{}:
+      lit_step(t)
+    case False{}:
+      t
+
 def cmp.lam(z: Bool, +eq: Bool, +w: W, +a: H.H, +b: H.H, +d: U32) -> Cs:
   match z:
     case True{}:
       +x : H.H = H.HVar{"_", d, C.NoSp{}}
       CsAll{[CpT{eq, ap(a, x, C.NoSp{}), ap(b, x, C.NoSp{}), (d + 1 : U32)}]}
     case False{}:
-      +a2 = Bool.pick(H.H, Bool.and(is.lit(a), is.ctr(b)), lit_step(a), a)
-      +b2 = Bool.pick(H.H, Bool.and(is.lit(b), is.ctr(a2)), lit_step(b), b)
+      +a2 = lit.if(Bool.and(is.lit(a), is.ctr(b)), a)
+      +b2 = lit.if(Bool.and(is.lit(b), is.ctr(a2)), b)
       cmp.cases(eq, w, a2, b2, d)
 
 def cmp.whnf(+eq: Bool, +w: W, +a: H.H, +b: H.H, +d: U32) -> Cs:
