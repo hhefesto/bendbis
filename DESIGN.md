@@ -749,6 +749,43 @@ than one session.
   upstream's does: the catch-all's `c` is rebuilt from the string's bits
   at every leaf. Milestone 3 keeps those rebuilds shared instead (lazy
   Sub-bound variables, as bend.ts's closures are), which changes no output.
+- **U32 natives** (Wnf.bend, "U32 natives"; the user, 11-27: "correctness
+  and more speed than regular bend"). bend.ts evaluates Base's U32
+  operations as Base defines them, through Word's constructors: one
+  `U32.add` on two literals turns both into 32 `WCon` cells and runs
+  Word.add's ripple carry over them, hundreds of machine steps. bendbis
+  answers Base's U32.add, sub, mul, div, mod, and, or, xor, min, max, cmp,
+  not, inc, to_nat, shl, shr and from_nat on literals in one step, with
+  comp.ts's natives (the values the compiled program computes); the rest
+  of Base's U32 ops (is_eq and the other comparisons, is_zero, is_even,
+  shln, shrn, ...) are made of these and reach them by Base's own
+  unfolding. Only defs whose Base body matches its arguments first are
+  natives, and a native reads them as that match does: the first to its
+  whnf, the second only when the first is a literal. A literal answers the
+  value. A whnf the match is stuck on answers the call stuck, the
+  arguments read so far in their whnfs, as Base's def does (its first
+  match stuck rebuilds the call); the argument is not read twice, since a
+  stuck call read again runs again (in bend.ts too): an earlier version
+  that ran Base's def after a failed native read doubled the work at each
+  level of a chain of natives, and four of upstream's tests
+  (`conversion_shared_cells_*`, `shift_*_mask`) timed out. Anything else
+  (a constructor) runs Base's def on that whnf. So every verdict and every
+  printed term is Base's; a whnf differs from Base's only inside its
+  arguments (stuck on b after matching a literal a, Base's def rebuilds a
+  as `U32{w}`, here a stays the literal). `gate/u32n.sh` holds it to that:
+  1,392 laws at edge and pseudo-random literals, their right sides
+  computed by the compiled program, which upstream proves through Base's
+  bit-level defs (ALL PROOFS CHECK, so Base's def and the native agree at
+  each input) and bendbis checks with the same output; 12 wrong laws, one
+  per op, and 12 wrong laws over a variable whose reports print stuck
+  calls, all byte for byte upstream's; and the adjunction's gates
+  (gate7: 1,880 + 28 + 253 files the same). Measured on olimpo (Ryzen 7
+  3700X, nothing else running, two runs each), before / now / upstream:
+  summing 8,000 U32s in a law, 14.0 / 0.30 / 4.7 s; the 1,392 laws, 4.5 /
+  0.48 / 1.4 s; ana's `CorpusV2/ExlawText.bend`, 7.9 / 1.6 / 2.7 s; ana's
+  `Walk.bend`, 8.7 / 2.4 / 2.4 s; ana's `Everything.bend` (mostly
+  parsing), 3.4 / 3.0 / 1.3 s. ana's 253 files in the gate (12 at a
+  time): 1.14 of upstream's time before, 0.99 now.
 - **Strictness.** A Bend def's arguments are evaluated before the call, so
   `Bool.pick(T, c, a, b)` evaluates both `a` and `b`. With a recursive call
   in each arm that is 2^n calls: bendbis's first `rows.other` (match

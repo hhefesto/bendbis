@@ -660,6 +660,305 @@ type Md is Type:
   MdFill{r: Cx}
   MdHit{r: Cxs}
   MdRwt{t: H.H, fl: Lh}
+  MdNx{o: Nx, v: H.H, n: U32, s: C.Sp}
+  MdN1{o: Nx, v: H.H, n: U32, s: C.Sp, r: Cx}
+  MdN2{o: Nx, v: H.H, n: U32, s: C.Sp, x: U32, r: Cx}
+  MdNs{ns: Ns, o: Nx, v: H.H, n: U32, s: C.Sp}
+
+# U32 natives
+# -----------
+# Base's U32 operations on literals, in one step. bend.ts runs them as
+# Base defines them, bit by bit through Word's constructors (U32.add is
+# Word.add's ripple carry over 32 WCon cells), and so does bendbis when a
+# native does not apply. The natives are the Base defs whose body matches
+# its arguments first, in order (`match a b: case U32{x} U32{y}`, `match
+# a`, `match n`, and U32.div's and U32.mod's `U32{aw} = a`): U32.add, sub,
+# mul, div, mod, and, or, xor, min, max, cmp (two U32s), not, inc, to_nat,
+# shl, shr (one), from_nat (a Nat). The rest of Base's U32 ops are made of
+# these (U32.is_eq is Cmp.is_eq(U32.cmp(a, b)), U32.shln is n U32.shls) and
+# reach them by Base's own unfolding.
+#
+# A def applied to all its arguments reads them as Base's def does: the
+# first to its whnf, and the second only when the first is a literal.
+# Each read ends one of four ways. A literal of the def's own type: on to
+# the next, or the value, the one Base's def computes (comp.ts's natives
+# compute it, gate/u32n.sh checks it against Base's def bit by bit). A
+# whnf Base's match is stuck on (no constructor and no literal): the call
+# is stuck, and its whnf is the call itself with the arguments read so far
+# in their whnf, which is what Base's def answers there (its first match
+# stuck rebuilds the call, bend.ts's lhs); the argument is not read again,
+# since a stuck call read again runs again, and a native that read it and
+# then gave it to Base's def would double the work at every level of a
+# chain of them. Anything else (a constructor, or a literal of another
+# type): Base's def runs, given that whnf, which it reads again in one
+# step. So every verdict is Base's, and every whnf is too up to the
+# arguments' own whnfs (Base's def, stuck on b after matching a, rebuilds
+# a as `U32{w}` from its literal; here a stays the literal); the work is
+# what changes. A literal needs Base (Load), whose names are no file's own,
+# so a def named U32.op on literals is Base's.
+type Nx is Data:
+  NxNo{}
+  NxAdd{}
+  NxSub{}
+  NxMul{}
+  NxDiv{}
+  NxMod{}
+  NxAnd{}
+  NxOr{}
+  NxXor{}
+  NxMin{}
+  NxMax{}
+  NxCmp{}
+  NxNot{}
+  NxInc{}
+  NxNat{}
+  NxShl{}
+  NxShr{}
+  NxFrom{}
+
+# a native's shape: one U32 (U1), two U32s read a then b (U2),
+# U32.from_nat's Nat (N1)
+type Nk is Data:
+  NkNo{}
+  NkU1{}
+  NkU2{}
+  NkN1{}
+
+# a whnf read: a U32 literal, a Nat literal, another constructor or
+# literal (Base's match reads it), or stuck (Base's match is stuck on it)
+type Nl is Data:
+  NlU{v: U32}
+  NlN{v: U32}
+  NlK{}
+  NlS{}
+
+# what a native does after a read: answer h, read its second argument
+# after x, run Base's def, or answer the call stuck
+type Ns is Data:
+  NsNo{}
+  NsDone{h: H.H}
+  NsMore{x: U32}
+  NsStuck{}
+
+# a native's name past "U32."
+type Ne is Data:
+  Ne{k: String, o: Nx}
+
+def nx.tbl() -> List<&2, Ne>:
+  [Ne{"add", NxAdd{}}, Ne{"sub", NxSub{}}, Ne{"mul", NxMul{}}, Ne{"div", NxDiv{}},
+   Ne{"mod", NxMod{}}, Ne{"and", NxAnd{}}, Ne{"or", NxOr{}}, Ne{"xor", NxXor{}},
+   Ne{"min", NxMin{}}, Ne{"max", NxMax{}}, Ne{"cmp", NxCmp{}}, Ne{"not", NxNot{}},
+   Ne{"inc", NxInc{}}, Ne{"to_nat", NxNat{}}, Ne{"shl", NxShl{}},
+   Ne{"shr", NxShr{}}, Ne{"from_nat", NxFrom{}}]
+
+def nx.if(z: Bool, o: Nx) -> Nx:
+  match z:
+    case True{}:
+      o
+    case False{}:
+      NxNo{}
+
+def nx.hit(e: Ne, +r: String) -> Nx:
+  match e:
+    case Ne{k, o}:
+      nx.if(String.eq(k, r), o)
+
+def nx.find(t: List<&2, Ne>, got: Nx, +r: String) -> Nx:
+  match t got:
+    case Con{e, u} NxNo{}:
+      nx.find(u, nx.hit(e, r), r)
+    case _ got:
+      got
+
+# the native a def's name names: U32.<op> in nx.tbl, else NxNo
+def nx.of(k: String) -> Nx:
+  match k:
+    case SCon{Chr{85}, SCon{Chr{51}, SCon{Chr{50}, SCon{Chr{46}, r}}}}:
+      nx.find(nx.tbl(), NxNo{}, r)
+    case _:
+      NxNo{}
+
+def nx.kind(o: Nx) -> Nk:
+  match o:
+    case NxNo{}:
+      NkNo{}
+    case NxNot{}:
+      NkU1{}
+    case NxInc{}:
+      NkU1{}
+    case NxNat{}:
+      NkU1{}
+    case NxShl{}:
+      NkU1{}
+    case NxShr{}:
+      NkU1{}
+    case NxFrom{}:
+      NkN1{}
+    case _:
+      NkU2{}
+
+# its arity
+def nk.ar(k: Nk) -> U32:
+  match k:
+    case NkU2{}:
+      2
+    case NkNo{}:
+      0
+    case _:
+      1
+
+def nl.of(h: H.H) -> Nl:
+  match h:
+    case H.HU32{v, s}:
+      NlU{v}
+    case H.HNat{v, s}:
+      NlN{v}
+    case H.HCtr{k, x, s}:
+      NlK{}
+    case H.HF32{v, s}:
+      NlK{}
+    case H.HStr{v, s}:
+      NlK{}
+    case _:
+      NlS{}
+
+def nx.c(c: Cmp, +s: C.Sp) -> H.H:
+  match c:
+    case LT{}:
+      H.HCtr{"LT", Nil{}, s}
+    case EQ{}:
+      H.HCtr{"EQ", Nil{}, s}
+    case GT{}:
+      H.HCtr{"GT", Nil{}, s}
+
+# a one-argument native's value at a
+def nx.u1(o: Nx, +a: U32, +s: C.Sp) -> H.H:
+  match o:
+    case NxNot{}:
+      H.HU32{U32.not(a), s}
+    case NxInc{}:
+      H.HU32{U32.inc(a), s}
+    case NxNat{}:
+      H.HNat{a, s}
+    case NxShl{}:
+      H.HU32{U32.shl(a), s}
+    case NxShr{}:
+      H.HU32{U32.shr(a), s}
+    case _:
+      H.HHol{"bendbis: a U32 native's arity", s}
+
+# a two-argument native's value at (a, b)
+def nx.u2(o: Nx, +a: U32, +b: U32, +s: C.Sp) -> H.H:
+  match o:
+    case NxAdd{}:
+      H.HU32{U32.add(a, b), s}
+    case NxSub{}:
+      H.HU32{U32.sub(a, b), s}
+    case NxMul{}:
+      H.HU32{U32.mul(a, b), s}
+    case NxDiv{}:
+      H.HU32{U32.div(a, b), s}
+    case NxMod{}:
+      H.HU32{U32.mod(a, b), s}
+    case NxAnd{}:
+      H.HU32{U32.and(a, b), s}
+    case NxOr{}:
+      H.HU32{U32.or(a, b), s}
+    case NxXor{}:
+      H.HU32{U32.xor(a, b), s}
+    case NxMin{}:
+      H.HU32{U32.min(a, b), s}
+    case NxMax{}:
+      H.HU32{U32.max(a, b), s}
+    case NxCmp{}:
+      nx.c(U32.cmp(a, b), s)
+    case _:
+      H.HHol{"bendbis: a U32 native's arity", s}
+
+# after the first read
+def nx.one.at(k: Nk, o: Nx, l: Nl, +s: C.Sp) -> Ns:
+  match k l:
+    case NkU1{} NlU{+a}:
+      NsDone{nx.u1(o, a, s)}
+    case NkU2{} NlU{a}:
+      NsMore{a}
+    case NkN1{} NlN{n}:
+      NsDone{H.HU32{n, s}}
+    case _ NlS{}:
+      NsStuck{}
+    case _ _:
+      NsNo{}
+
+def nx.one(+o: Nx, l: Nl, +s: C.Sp) -> Ns:
+  nx.one.at(nx.kind(o), o, l, s)
+
+# after the second read (a, the first, a U32 literal)
+def nx.two(o: Nx, +a: U32, l: Nl, +s: C.Sp) -> Ns:
+  match l:
+    case NlU{b}:
+      NsDone{nx.u2(o, a, b, s)}
+    case NlS{}:
+      NsStuck{}
+    case _:
+      NsNo{}
+
+# the i-th argument frame's term (0 the first)
+def nx.arg(i: Nat, frs: List<&2, Fr>) -> H.H:
+  match i frs:
+    case 0n Con{FApp{x, s}, t}:
+      x
+    case 1n+j Con{f, t}:
+      nx.arg(j, t)
+    case _ _:
+      H.HHol{"bendbis: a U32 native's argument", C.NoSp{}}
+
+def nx.keep.at(z: Bool, x: H.H, h: H.H) -> H.H:
+  match z:
+    case True{}:
+      x
+    case False{}:
+      h
+
+# the i-th argument frame with its term x read: its whnf h in its place (a
+# cell x stays, h its fill), so nothing after reads x again
+def nx.keep(x: H.H, h: H.H) -> H.H:
+  match x:
+    case H.HVal{k, +i, s, v}:
+      nx.keep.at(is.cell(i), H.HVal{k, i, s, v}, h)
+    case _:
+      h
+
+def nx.set(i: Nat, h: H.H, frs: List<&2, Fr>) -> List<&2, Fr>:
+  match i frs:
+    case 0n Con{FApp{x, u}, t}:
+      FApp{nx.keep(x, h), u} <> t
+    case 1n+j Con{f, t}:
+      f <> nx.set(j, h, t)
+    case _ frs:
+      frs
+
+# the frames past the first i
+def frs.drop(i: Nat, frs: List<&2, Fr>) -> List<&2, Fr>:
+  match i frs:
+    case 1n+j Con{f, t}:
+      frs.drop(j, t)
+    case _ frs:
+      frs
+
+def nx.md.at(z: Bool, o: Nx, v: H.H, +n: U32, s: C.Sp) -> Md:
+  match z:
+    case True{}:
+      MdNx{o, v, n, s}
+    case False{}:
+      MdRun{True{}, v, n}
+
+# a def unfolding: a native when o is one and the def takes its arity
+def nx.md(ok: Bool, +o: Nx, v: H.H, +n: U32, s: C.Sp) -> Md:
+  match ok:
+    case True{}:
+      nx.md.at(Bool.and(Bool.not(U32.is_eq(nk.ar(nx.kind(o)), 0)), U32.is_eq(nk.ar(nx.kind(o)), n)), o, v, n, s)
+    case False{}:
+      MdRun{False{}, v, n}
 
 def w.bk(w: W) -> Map<&2, Td>:
   match w:
@@ -730,10 +1029,33 @@ def wnf.go(+fuel: Nat, +w: W, cm: Cm, md: Md, tm: H.H, +frs: List<&2, Fr>, lhs: 
       match td tm:
         case TdAdt{+n, g, T, c, ab} H.HRef{+k, +s, b}:
           wnf.go(p, w, cm, MdBack{}, Bool.pick(H.H, U32.is_eq(n, 0), H.HAdt{k, Nil{}, Nil{}, s}, H.HRef{k, s, b}), frs, LhNo{})
+        case TdDef{+n, x, T, Some{v}, db, u, ffi, l, rs} H.HRef{+k, +s, b}:
+          +m = U32.to_nat(n)
+          wnf.go(p, w, cm, nx.md(Nat.is_eq(run.count(m, frs, 0n), m), nx.of(k), v, n, s), H.HRef{k, s, b}, frs, lhs)
         case TdDef{+n, x, T, Some{v}, db, u, ffi, l, rs} tm:
           +m = U32.to_nat(n)
           wnf.go(p, w, cm, MdRun{Nat.is_eq(run.count(m, frs, 0n), m), v, n}, tm, frs, lhs)
         case _ tm:
+          wnf.go(p, w, cm, MdBack{}, tm, frs, LhNo{})
+    case 1n+p MdNx{+o, v, n, s}:
+      wnf.go(p, w, cm.off(), MdN1{o, v, n, s, wnf.go(p, w, cm, MdMain{}, nx.arg(0n, frs), Nil{}, LhNo{})}, tm, frs, lhs)
+    case 1n+p MdN1{+o, v, n, +s, r}:
+      match r:
+        case Cx{+h, cm2}:
+          wnf.go(p, w, cm2, MdNs{nx.one(o, nl.of(h), s), o, v, n, s}, tm, nx.set(0n, h, frs), lhs)
+    case 1n+p MdN2{+o, v, n, +s, +x, r}:
+      match r:
+        case Cx{+h, cm2}:
+          wnf.go(p, w, cm2, MdNs{nx.two(o, x, nl.of(h), s), o, v, n, s}, tm, nx.set(1n, h, frs), lhs)
+    case 1n+p MdNs{ns, +o, v, +n, +s}:
+      match ns:
+        case NsDone{h}:
+          wnf.go(p, w, cm, MdBack{}, h, frs.drop(U32.to_nat(n), frs), LhNo{})
+        case NsMore{+x}:
+          wnf.go(p, w, cm.off(), MdN2{o, v, n, s, x, wnf.go(p, w, cm, MdMain{}, nx.arg(1n, frs), Nil{}, LhNo{})}, tm, frs, lhs)
+        case NsNo{}:
+          wnf.go(p, w, cm, MdRun{True{}, v, n}, tm, frs, lhs)
+        case NsStuck{}:
           wnf.go(p, w, cm, MdBack{}, tm, frs, LhNo{})
     case 1n+p MdRun{ok, v, n}:
       match ok:
