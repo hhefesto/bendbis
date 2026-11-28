@@ -58,6 +58,27 @@ and slower on a big file: 1.8 times upstream's time on `base.bend`, 3.8
 times on ana's `Everything.bend`. Where the time goes, and the plan to
 close the gap: `DESIGN.md`, "Speed".
 
+**Since then** (commit `fbad9c0`, 2026-11-28, on olimpo, a Ryzen 7 3700X,
+against upstream at bendbis's pin; two runs each, nothing else running):
+the checker's share cells are a flat array, its hot paths build no unused
+value, and Base's U32 operations on literals run as natives (`DESIGN.md`,
+"U32 natives"; `gate/u32n.sh`). The adjunction's gates pass (1,880 + 28 +
+253 files byte for byte upstream's).
+
+| input | upstream | bendbis | bendbis / upstream |
+|---|---|---|---|
+| upstream's tests and base.bend (1,880, 12 at a time) | 1,091 s | 594 s | 0.54 |
+| ana's 253 files (12 at a time) | 622 s | 617 s | 0.99 |
+| ana's `CorpusV2/ExlawText.bend` | 2.7 s | 1.6 s | 0.59 |
+| ana's `Walk.bend` | 2.4 s | 2.4 s | 1.0 |
+| ana's `Everything.bend` (mostly parsing) | 1.3 s | 3.0 s | 2.3 |
+| a law summing 8,000 U32s | 4.7 s | 0.30 s | 0.06 |
+
+Still slower: parsing (a 16-case match on string literals parses in 1.3 s
+against upstream's 0.26 s for the whole check), and ana files built on such
+matches (`tests/Sim.bend` 1.95, `Box/Act.bend` 1.92, `tests/chain.bend`
+1.70 of upstream's time in the gate).
+
 **Not done yet.** bendbis has no `--verdict` of its own: its checker,
 like upstream's `--check-only`, is exact against upstream on the files
 above and is not claimed sound (the laws above are checked by upstream's
